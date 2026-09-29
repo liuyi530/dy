@@ -1007,20 +1007,14 @@ async function fetchViaRelay(url, opts, timeout){
 async function requestSearch(keyword){
   const src = SOURCES[currentSource];
 
-  // 先访问首页，拿 Cookie（代理内部会缓存）
-  try {
-    await fetchViaRelay(src.base + '/', { method: 'GET' });
-  } catch (e) {
-    console.warn('预热首页失败:', e.message);
-  }
-
-  // 用 POST 搜索
+  // 1. 直接尝试 POST 搜索，不再去访问首页（避免多余的请求触发风控）
   const postOpts = src.getSearchOptions(keyword);
   let txt = '';
   try {
     txt = await fetchViaRelay(src.getSearchUrl(), postOpts);
   } catch (e) {
     console.warn('POST 搜索失败，尝试 GET:', e.message);
+    // 2. 如果 POST 报错，再尝试 GET 请求
     txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
   }
 
@@ -1263,13 +1257,16 @@ async function doSearch(keyword){
 async function gotoPage(targetUrl){
   if(!targetUrl) return;
 
+  // 1. 显示骨架屏，不渲染任何内容，不发额外请求
   renderSkeleton();
   window.scrollTo({ top:0, behavior:'smooth' });
 
   try{
+    // 2. 只请求这一页的链接
     const html = await requestUrl(targetUrl);
     const result = SOURCES[currentSource].parseList(html);
 
+    // 3. 更新状态，只更新当前页的数据
     pageState.prevUrl     = result.prevUrl || '';
     pageState.nextUrl     = result.nextUrl || '';
     pageState.hasPrev     = !!result.hasPrev;
@@ -1278,6 +1275,7 @@ async function gotoPage(targetUrl){
     pageState.totalPages  = result.totalPages || 1;
     pageState.totalCount  = result.totalCount || result.list.length;
 
+    // 4. 渲染当前页
     renderCards(result.list, pageState.currentKeyword);
   }catch(e){
     console.error(e);

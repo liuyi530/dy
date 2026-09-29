@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>影视快捷搜索</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<style>
+:root{
+  --bg:#0e1116;
+  --bg2:#151a22;
+  --card:#1b2230;
+  --card2:#222b3b;
+  --line:#2a3446;
+  --txt:#e8edf5;
+  --sub:#8b98ad;
+  --main:#20c997;
+  --main2:#12a37a;
+  --warn:#f5c542;
+  --danger:#ef4d5a;
+  --play:#3b82f6;
+  --play2:#2563eb;
+  --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(900px 500px at 50% -200px, rgba(32,201,151,.18), transparent 70%),
+    var(--bg);
+  color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  min-height:100%;
+  padding-bottom:40px;
+}
+
+.topbar{
+  position:sticky;top:0;z-index:50;
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  background:rgba(14,17,22,.82);
+  border-bottom:1px solid var(--line);
+  padding:12px 14px 10px;
+  animation:fadeDown .5s ease;
+}
+.title-row{
+  display:flex;align-items:center;gap:8px;
+  margin-bottom:10px;
+}
+.title{
+  display:flex;align-items:center;gap:8px;
+  font-size:16px;font-weight:700;
+  flex-shrink:0;
+}
+.title .dot{
+  width:10px;height:10px;border-radius:50%;
+  background:var(--main);
+  box-shadow:0 0 12px var(--main);
+  animation:pulse 2s infinite;
+}
+
+.source-selector{
+  display:flex;
+  gap:4px;
+  margin-left:auto;
+  background:var(--bg2);
+  padding:3px;
+  border-radius:10px;
+  border:1px solid var(--line);
+  overflow:hidden;
+}
+.src-btn{
+  background:transparent;
+  border:none;
+  color:var(--sub);
+  padding:5px 10px;
+  border-radius:7px;
+  font-size:12px;
+  font-weight:600;
+  cursor:pointer;
+  transition:.2s;
+  white-space:nowrap;
+}
+.src-btn.active{
+  background:var(--main);
+  color:#04150f;
+  box-shadow:0 2px 8px rgba(32,201,151,.3);
+}
+
+.searchrow{display:flex;gap:8px}
+.searchrow input{
+  flex:1;min-width:0;height:44px;
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:12px;
+  color:var(--txt);
+  padding:0 14px;
+  font-size:15px;
+  outline:none;
+  transition:.2s;
+}
+.searchrow input:focus{
+  border-color:var(--main);
+  box-shadow:0 0 0 3px rgba(32,201,151,.15);
+}
+.searchrow button{
+  height:44px;padding:0 20px;
+  background:linear-gradient(135deg,var(--main),var(--main2));
+  border:none;border-radius:12px;
+  color:#04150f;font-weight:700;font-size:15px;
+  cursor:pointer;
+  transition:.15s;
+  display:flex;align-items:center;gap:6px;
+  flex-shrink:0;
+}
+.searchrow button:active{transform:scale(.96)}
+.searchrow button.loading{opacity:.7;pointer-events:none}
+.spinner{
+  width:16px;height:16px;
+  border:2px solid rgba(4,21,15,.3);
+  border-top-color:#04150f;
+  border-radius:50%;
+  animation:spin .7s linear infinite;
+  display:none;
+}
+button.loading .spinner{display:block}
+button.loading .btxt{display:none}
+
+.stat{
+  padding:14px 16px 6px;
+  font-size:14px;color:var(--sub);
+  animation:fadeIn .4s ease;
+}
+.stat b{color:var(--main);font-weight:700}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(2,1fr);
+  gap:12px;
+  padding:10px 14px 20px;
+}
+@media(min-width:640px){.grid{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:960px){.grid{grid-template-columns:repeat(4,1fr)}}
+
+.card{
+  background:var(--card);
+  border-radius:var(--radius);
+  overflow:hidden;
+  cursor:pointer;
+  position:relative;
+  border:1px solid var(--line);
+  transition:transform .25s cubic-bezier(.2,.8,.3,1), box-shadow .25s, border-color .25s;
+  opacity:1;
+  transform:translateY(0);
+  animation:cardIn .45s ease both;
+}
+.card.animated{animation:none}
+.card:hover{
+  transform:translateY(-4px);
+  box-shadow:0 12px 28px rgba(0,0,0,.5);
+  border-color:rgba(32,201,151,.5);
+}
+.card:active{transform:scale(.97)}
+.cover{
+  width:100%;aspect-ratio:16/10;
+  background:var(--card2) center/cover no-repeat;
+  position:relative;
+  overflow:hidden;
+}
+.cover::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(180deg,transparent 40%,rgba(0,0,0,.75));
+  pointer-events:none;
+}
+.cover img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s}
+.card:hover .cover img{transform:scale(1.06)}
+.rank{
+  position:absolute;top:8px;left:8px;z-index:2;
+  padding:3px 8px;border-radius:8px;
+  font-size:12px;font-weight:700;
+  color:#04150f;
+  background:var(--main);
+}
+.rank.mid{background:var(--warn);color:#2a1e00}
+.rank.low{background:var(--danger);color:#fff}
+.cardbody{padding:8px 10px 10px}
+.cardbody h3{
+  font-size:14px;font-weight:600;line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.cardbody .year{
+  font-size:12px;color:var(--sub);margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
+.pagination-box{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  padding:15px 14px 30px;
+  flex-wrap:wrap;
+}
+.btn-page{
+  height:40px;
+  padding:0 18px;
+  background:var(--card);
+  border:1px solid var(--line);
+  color:var(--txt);
+  border-radius:12px;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  transition:.2s;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+}
+.btn-page:hover:not(:disabled){
+  border-color:var(--main);
+  color:var(--main);
+  box-shadow:0 4px 12px rgba(32,201,151,.15);
+}
+.btn-page:active:not(:disabled){transform:scale(.96)}
+.btn-page:disabled{opacity:.4;cursor:not-allowed;border-color:var(--line)}
+.page-info{font-size:13px;color:var(--sub);font-weight:600;padding:0 6px}
+.page-info b{color:var(--main)}
+
+.empty{
+  text-align:center;padding:60px 20px;color:var(--sub);
+  animation:fadeIn .4s;
+}
+.empty svg{width:64px;height:64px;opacity:.35;margin-bottom:12px}
+.empty p{font-size:14px;line-height:1.6}
+.empty .retry{
+  display:inline-block;margin-top:14px;
+  padding:9px 20px;border-radius:10px;
+  background:var(--main);color:#04150f;font-weight:700;
+  cursor:pointer;font-size:13px;border:none;
+}
+.empty .retry:active{transform:scale(.95)}
+
+.skeleton{
+  background:var(--card);border-radius:var(--radius);overflow:hidden;
+  border:1px solid var(--line);
+}
+.sk-cover{width:100%;aspect-ratio:16/10;background:var(--card2);animation:pulse 1.4s infinite}
+.sk-line{height:12px;margin:10px;border-radius:6px;background:var(--card2);animation:pulse 1.4s infinite}
+.sk-line.short{width:40%}
+
+.mask{
+  position:fixed;inset:0;z-index:100;
+  background:rgba(0,0,0,.65);
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+  display:none;
+  align-items:flex-end;
+  justify-content:center;
+  animation:fadeIn .25s;
+}
+.mask.show{display:flex}
+.sheet{
+  width:100%;max-width:720px;
+  max-height:88vh;
+  background:var(--bg2);
+  border-radius:20px 20px 0 0;
+  border:1px solid var(--line);
+  border-bottom:none;
+  display:flex;flex-direction:column;
+  animation:slideUp .35s cubic-bezier(.2,.9,.3,1);
+}
+@media(min-width:700px){
+  .mask{align-items:center}
+  .sheet{border-radius:20px;border-bottom:1px solid var(--line);max-height:82vh}
+}
+.sheethead{
+  padding:16px 18px 12px;
+  border-bottom:1px solid var(--line);
+  display:flex;gap:12px;align-items:center;
+  flex-shrink:0;
+}
+.sheethead .thumb{
+  width:60px;height:60px;border-radius:10px;
+  background:var(--card2) center/cover no-repeat;flex-shrink:0;
+}
+.sheethead .info{flex:1;min-width:0}
+.sheethead h2{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheethead .meta{font-size:12px;color:var(--sub);margin-top:4px}
+.close{
+  width:34px;height:34px;border-radius:50%;
+  background:var(--card);border:1px solid var(--line);
+  color:var(--txt);font-size:18px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;transition:.15s;
+  line-height:1;
+}
+.close:active{transform:scale(.9)}
+.sheetbody{overflow-y:auto;padding:12px 14px 24px;flex:1;-webkit-overflow-scrolling:touch}
+
+.playbox{
+  background:linear-gradient(135deg,rgba(59,130,246,.14),rgba(37,99,235,.08));
+  border:1px solid rgba(59,130,246,.4);
+  border-radius:12px;
+  padding:12px;
+  margin-bottom:14px;
+  animation:fadeUp .3s ease both;
+}
+.playbox .ptitle{
+  display:flex;align-items:center;gap:6px;
+  font-size:13px;font-weight:700;color:var(--play);
+  margin-bottom:8px;
+}
+.playbox .paddr{
+  font-size:11px;color:var(--sub);
+  word-break:break-all;
+  margin-bottom:10px;
+  line-height:1.4;
+  max-height:60px;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
+}
+.playbox .paddr.probing{color:var(--warn);animation:pulse 1.4s infinite}
+.playbox .paddr.ok{color:#7fd8b8}
+.playbox .paddr.fail{color:#f08a94}
+.playbox .row{display:flex;gap:8px}
+
+.player-container{
+  display:none;
+  width:100%;
+  aspect-ratio:16/9;
+  background:#000;
+  border-radius:10px;
+  overflow:hidden;
+  margin-top:10px;
+}
+.player-container video{width:100%;height:100%;outline:none;background:#000;display:block}
+
+.btn-play-copy{background:var(--card2);color:var(--txt);border:1px solid var(--line);flex:1}
+.btn-play-copy.done{background:var(--play);color:#fff;border-color:var(--play)}
+.btn-play-open{background:linear-gradient(135deg,var(--play),var(--play2));color:#fff;flex:1}
+
+.section-title{
+  font-size:12px;color:var(--sub);
+  margin:14px 2px 8px;
+  letter-spacing:.5px;
+}
+
+.magnet,.episode-item{
+  background:var(--card);
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:12px;
+  margin-bottom:10px;
+  animation:fadeUp .3s ease both;
+  transition:.2s;
+}
+.magnet:hover,.episode-item:hover{border-color:rgba(32,201,151,.4)}
+.fname{
+  font-size:13px;line-height:1.4;
+  word-break:break-all;
+  margin-bottom:8px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+}
+.row{
+  display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;
+}
+.size{
+  font-size:12px;font-weight:700;
+  color:var(--main);
+  background:rgba(32,201,151,.12);
+  padding:3px 9px;border-radius:7px;
+  flex-shrink:0;
+}
+.btns{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.btn{
+  padding:6px 12px;border-radius:8px;
+  font-size:12px;font-weight:600;
+  cursor:pointer;border:none;
+  transition:.15s;
+  white-space:nowrap;
+}
+.btn:active{transform:scale(.94)}
+.btn-copy{background:var(--card2);color:var(--txt);border:1px solid var(--line)}
+.btn-copy.done{background:var(--main);color:#04150f;border-color:var(--main)}
+.btn-open{background:linear-gradient(135deg,var(--main),var(--main2));color:#04150f}
+
+/* 视频解析 UI 样式 */
+.jiexi-box{
+  width: 100%;        /* 确保占满宽度 */
+  margin: 20px auto;
+  padding: 0 10px;    /* 如果不想紧贴屏幕边缘，保留10px；想完全贴边改为 0 */
+  animation: fadeIn .4s ease;
+}
+.jiexi-card{
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0px;       /* 可以改成 10px 或 14px，让内部空间更大 */
+}
+.jiexi-row{
+  display:flex;
+  gap:10px;
+  margin-bottom:14px;
+  align-items:center;
+  flex-wrap:wrap;
+}
+.jiexi-row label{
+  font-size:14px;
+  color:var(--sub);
+  font-weight:600;
+  white-space:nowrap;
+}
+.jiexi-select{
+  flex:1;
+  min-width:160px;
+  height:42px;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:10px;
+  color:var(--txt);
+  padding:0 12px;
+  font-size:14px;
+  outline:none;
+  cursor:pointer;
+}
+.jiexi-select option{
+  background:var(--card);
+  color:var(--txt);
+}
+.jiexi-input-group{
+  display:flex;
+  gap:8px;
+  width:100%;
+}
+.jiexi-input-group input{
+  flex:1;
+  min-width:0;
+  height:44px;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:10px;
+  color:var(--txt);
+  padding:0 14px;
+  font-size:14px;
+  outline:none;
+  transition:.2s;
+}
+.jiexi-input-group input:focus{
+  border-color:var(--main);
+  box-shadow:0 0 0 3px rgba(32,201,151,.15);
+}
+.jiexi-input-group button{
+  height:44px;
+  padding:0 20px;
+  background:linear-gradient(135deg,var(--main),var(--main2));
+  border:none;
+  border-radius:10px;
+  color:#04150f;
+  font-weight:700;
+  font-size:14px;
+  cursor:pointer;
+  white-space:nowrap;
+  transition:.15s;
+}
+.jiexi-input-group button:active{transform:scale(.96)}
+.jiexi-player{
+  margin-top: 16px;
+  width: 100%;           /* 宽度占满父容器 */
+  height: 460px;         /* 新增：固定高度 */
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  display: none;
+}
+.jiexi-player iframe{
+  width:100%;
+  height:100%;
+  border:none;
+  display:block;
+}
+
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes fadeDown{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes cardIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+
+.toast{
+  position:fixed;left:50%;bottom:40px;transform:translateX(-50%) translateY(20px);
+  background:rgba(32,201,151,.95);color:#04150f;
+  padding:10px 20px;border-radius:10px;
+  font-size:13px;font-weight:700;
+  opacity:0;pointer-events:none;
+  transition:.3s;z-index:200;
+  max-width:80vw;text-align:center;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="title-row">
+    <div class="title">
+      <span class="dot"></span>
+      影视快捷搜索
+    </div>
+    <div class="source-selector">
+      <button class="src-btn active" data-source="cilixiong">磁力熊</button>
+      <button class="src-btn" data-source="ffzy">非凡资源</button>
+      <button class="src-btn" data-source="jiexi">视频解析</button>
+    </div>
+  </div>
+  <div class="searchrow">
+    <input id="kw" type="text" placeholder="请输入电影或电视剧名称" autocomplete="off">
+    <button id="btnSearch">
+      <span class="spinner"></span>
+      <span class="btxt">搜索</span>
+    </button>
+  </div>
+</div>
+
+<div id="stat" class="stat" style="display:none"></div>
+<div id="content"></div>
+
+<div class="mask" id="mask">
+  <div class="sheet">
+    <div class="sheethead">
+      <div class="thumb" id="dThumb"></div>
+      <div class="info">
+        <h2 id="dName">—</h2>
+        <div class="meta" id="dMeta">—</div>
+      </div>
+      <button class="close" id="btnClose" aria-label="关闭">×</button>
+    </div>
+    <div class="sheetbody" id="dBody"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   全局配置与数据源定义
+   ============================================================ */
+const CONFIG = {
+  relay: '/proxy?url=',
+  timeout: 20000,
+};
+
+let currentSource = 'cilixiong';
+let hlsInstance = null;
+let detailOpen = false;
+let currentDetailItem = null;
+
+let pageState = {
+  prevUrl: '',
+  nextUrl: '',
+  hasPrev: false,
+  hasMore: false,
+  currentPage: 1,
+  totalPages: 1,
+  totalCount: 0,
+  currentKeyword: ''
+};
+
+const SOURCES = {
+  /* ------------------------- 磁力熊 ------------------------- */
+  cilixiong: {
+    name: '磁力熊',
+    base: 'https://www.cilixiong.org',
+    searchPath: '/e/search/index.php',
+
+    getSearchUrl: function(kw){
+      return this.base + this.searchPath;
+    },
+    getSearchUrlGet: function(kw){
+      return this.base + this.searchPath +
+        '?searchget=1&classid=1,2&show=title&tempid=1&keyboard=' +
+        encodeURIComponent(kw);
+    },
+    getSearchOptions: function(kw){
+      const body = encodeForm({ classid:'1,2', show:'title', tempid:'1', keyboard: kw });
+      return {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
+      };
+    },
+
+    parseList: function(html){
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const list = [];
+      const seen = new Set();
+
+      const pushItem = (nameEl, yearEl, rankEl, coverEl, href) => {
+        if(!nameEl) return;
+        const name = nameEl.textContent.trim();
+        if(!name || seen.has(href + name)) return;
+        seen.add(href + name);
+
+        let cover = '';
+        if(coverEl){
+          const bg = coverEl.getAttribute('style') || '';
+          const m = bg.match(/url\(['"]?([^'")]+)['"]?\)/);
+          if(m) cover = m[1];
+        }
+        list.push({
+          name,
+          year: yearEl ? yearEl.textContent.trim() : '',
+          rank: rankEl ? rankEl.textContent.trim() : '',
+          cover: abs(cover, this.base),
+          href: abs(href, this.base)
+        });
+      };
+
+      doc.querySelectorAll('.card.card-cover').forEach(card => {
+        const a = card.closest('a') || card.querySelector('a');
+        if(!a) return;
+        pushItem(
+          card.querySelector('.pt-5.lh-1.pb-2.h4') || card.querySelector('h2'),
+          card.querySelector('.d-flex.align-items-center.small'),
+          card.querySelector('.rank'),
+          card.querySelector('.card-img'),
+          a.getAttribute('href')
+        );
+      });
+
+      if(list.length === 0){
+        doc.querySelectorAll('a[href*="/movie/"]').forEach(a => {
+          const card = a.querySelector('.card') || a;
+          pushItem(
+            card.querySelector('.pt-5.lh-1.pb-2.h4') || card.querySelector('h2'),
+            card.querySelector('.d-flex.align-items-center.small'),
+            card.querySelector('.rank'),
+            card.querySelector('.card-img'),
+            a.getAttribute('href')
+          );
+        });
+      }
+
+      return {
+        list,
+        prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
+        currentPage:1, totalPages:1, totalCount: list.length
+      };
+    },
+
+    parseDetail: function(html){
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const magnets = [];
+      const seen = new Set();
+
+      doc.querySelectorAll('a[href^="magnet:"]').forEach(a => {
+        const href = a.getAttribute('href');
+        if(!href || seen.has(href)) return;
+        seen.add(href);
+        const text = a.textContent.trim();
+        let size = '';
+        const m = text.match(/\[([^\]]+)\]\s*$/);
+        if(m) size = m[1];
+        magnets.push({ title: text || '磁力资源', size, magnet: href });
+      });
+
+      let playPageUrl = '';
+      const iframe = doc.querySelector('.embed_video iframe') || doc.querySelector('iframe[src*="jx.php"]');
+      if(iframe){
+        const src = iframe.getAttribute('src') || '';
+        if(src) playPageUrl = abs(src, this.base);
+      }
+
+      return { magnets, playPageUrl, playList: [] };
+    }
+  },
+
+  /* ------------------------ 非凡资源 ------------------------ */
+  ffzy: {
+    name: '非凡资源',
+    base: 'https://www.ffzy.tv',
+
+    getSearchUrl: function(kw){
+      return this.base + '/index.php/vod/search.html';
+    },
+    getSearchUrlGet: function(kw){
+      return this.base + '/index.php/vod/search.html?wd=' + encodeURIComponent(kw);
+    },
+    getSearchOptions: function(kw){
+      const body = encodeForm({ wd: kw });
+      return {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body
+      };
+    },
+
+    parseList: function(html){
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const list = [];
+
+      let items = doc.querySelectorAll('ul.videoContent > li');
+      if(items.length === 0) items = doc.querySelectorAll('a.videoName');
+
+      items.forEach(node => {
+        let a = null;
+        let scope = node;
+        if(node.tagName === 'A'){
+          a = node;
+          scope = node.closest('li') || node;
+        }else{
+          a = node.querySelector('a.videoName') || node.querySelector('a.address');
+        }
+        if(!a) return;
+
+        const href = a.getAttribute('href');
+        if(!href) return;
+
+        const clone = a.cloneNode(true);
+        const statusEl = clone.querySelector('i');
+        const status = statusEl ? statusEl.textContent.trim() : '';
+        if(statusEl) statusEl.remove();
+        const name = clone.textContent.trim() || '未知片名';
+
+        const regionEl = scope.querySelector('.region');
+        const typeEl   = scope.querySelector('.category') || scope.querySelector('.type');
+        const timeEl   = scope.querySelector('.time1')    || scope.querySelector('.time');
+
+        list.push({
+          name,
+          year:   timeEl   ? timeEl.textContent.trim()   : '',
+          rank:   typeEl   ? typeEl.textContent.trim()   : '',
+          region: regionEl ? regionEl.textContent.trim() : '',
+          status,
+          cover: '',
+          href:  abs(href, this.base)
+        });
+      });
+
+      let prevUrl = '', nextUrl = '';
+      let hasPrev = false, hasMore = false;
+      let currentPage = 1, totalPages = 1, totalCount = list.length;
+
+      const pageBox = doc.querySelector('.pages') || doc.querySelector('.page') || doc.querySelector('.kscont');
+      if(pageBox){
+        const prevA = pageBox.querySelector('a[title="上一页"]');
+        if(prevA){
+          const phref = prevA.getAttribute('href') || '';
+          if(phref && !phref.includes('javascript:') && phref !== '#'){
+            prevUrl = abs(phref, this.base);
+            hasPrev = true;
+          }
+        }
+
+        const nextA = pageBox.querySelector('a[title="下一页"]');
+        if(nextA){
+          const nhref = nextA.getAttribute('href') || '';
+          if(nhref && !nhref.includes('javascript:') && nhref !== '#'){
+            nextUrl = abs(nhref, this.base);
+            hasMore = true;
+          }
+        }
+
+        const statSpan = pageBox.querySelector('span.disabled') || pageBox;
+        const text = statSpan ? (statSpan.textContent || '') : '';
+        const m = text.match(/共\s*(\d+)\s*条数据.*?当前\s*(\d+)\s*\/\s*(\d+)\s*页/);
+        if(m){
+          totalCount  = parseInt(m[1], 10) || list.length;
+          currentPage = parseInt(m[2], 10) || 1;
+          totalPages  = parseInt(m[3], 10) || 1;
+        }else{
+          const activeSpan = pageBox.querySelector('span.active');
+          if(activeSpan){
+            const num = parseInt(activeSpan.textContent, 10);
+            if(!isNaN(num)) currentPage = num;
+          }
+        }
+      }
+
+      if(currentPage <= 1){ hasPrev = false; prevUrl = ''; }
+      if(currentPage >= totalPages){ hasMore = false; nextUrl = ''; }
+
+      return { list, prevUrl, nextUrl, hasPrev, hasMore, currentPage, totalPages, totalCount };
+    },
+
+    parseDetail: function(html){
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+
+      let cover = '';
+      const imgEl = doc.querySelector('.left img') || doc.querySelector('.vodImg img');
+      if(imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
+
+      const playList = [];
+      const seen = new Set();
+
+      doc.querySelectorAll('input[name*="copy_ffm3u8"]').forEach(ipt => {
+        const val = (ipt.value || '').trim();
+        if(!val.includes('$')) return;
+        const idx = val.indexOf('$');
+        const quality = val.slice(0, idx).trim() || '正片';
+        const url     = val.slice(idx + 1).trim();
+        if(!url || seen.has(url)) return;
+        seen.add(url);
+        playList.push({ title: quality, url });
+      });
+
+      if(playList.length === 0){
+        const text = doc.body ? (doc.body.innerText || doc.body.textContent || '') : '';
+        for(const m of text.matchAll(/([^\n\$]+?)\$((?:https?:\/\/)[^\s\$\n]+?\.m3u8[^\s\$\n]*)/gi)){
+          const quality = m[1].trim();
+          const url = m[2].trim();
+          if(seen.has(url)) continue;
+          seen.add(url);
+          playList.push({ title: quality, url });
+        }
+      }
+
+      return { cover, magnets: [], playPageUrl: '', playList };
+    }
+  }
+};
+
+/* ============================================================
+   通用工具函数
+   ============================================================ */
+const $  = s => document.querySelector(s);
+const $$ = s => Array.prototype.slice.call(document.querySelectorAll(s));
+
+function toast(msg){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(()=>t.classList.remove('show'), 1600);
+}
+
+function encodeForm(obj){
+  return Object.keys(obj)
+    .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(obj[k]))
+    .join('&');
+}
+
+function abs(url, base){
+  if(!url) return '';
+  url = String(url).trim();
+  if(!url) return '';
+  if(url.startsWith('http://') || url.startsWith('https://')) return url;
+  if(url.startsWith('//')) return 'https:' + url;
+  return base + (url.startsWith('/') ? '' : '/') + url;
+}
+
+function fetchWithTimeout(url, options, timeout){
+  timeout = timeout || CONFIG.timeout;
+  const ctrl = new AbortController();
+  const id = setTimeout(()=>ctrl.abort(), timeout);
+  return fetch(url, Object.assign({}, options || {}, { signal: ctrl.signal }))
+    .finally(()=>clearTimeout(id));
+}
+
+async function copyText(text){
+  try{
+    await navigator.clipboard.writeText(text);
+    return true;
+  }catch(e){
+    try{
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      return true;
+    }catch(err){
+      return false;
+    }
+  }
+}
+
+function copyFeedback(btn, label){
+  if(!btn) return;
+  const old = btn.textContent;
+  btn.classList.add('done');
+  btn.textContent = label;
+  setTimeout(()=>{
+    btn.classList.remove('done');
+    btn.textContent = old;
+  }, 1400);
+}
+
+function extractVideoUrl(text){
+  if(!text) return '';
+  const s = String(text).replace(/\\\//g, '/').replace(/&amp;/g, '&');
+  const patterns = [
+    /https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i,
+    /https?:\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
+    /https?:\/\/[^\s"'<>\\]+?\.flv[^\s"'<>\\]*/i,
+    /\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i,
+    /\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
+  ];
+  for(let i=0;i<patterns.length;i++){
+    const m = s.match(patterns[i]);
+    if(m){
+      let u = m[0];
+      if(u.startsWith('//')) u = 'https:' + u;
+      return u;
+    }
+  }
+  return '';
+}
+
+function escapeHtml(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+function escapeAttr(s){
+  return escapeHtml(s).replace(/`/g,'&#96;');
+}
+
+/* ============================================================
+   HLS 播放
+   ============================================================ */
+function destroyHls(){
+  const video = document.getElementById('playerVideo');
+  if(video){
+    try{ video.pause(); }catch(e){}
+    try{ video.removeAttribute('src'); video.load(); }catch(e){}
+  }
+  if(hlsInstance){
+    try{ hlsInstance.destroy(); }catch(e){}
+    hlsInstance = null;
+  }
+}
+
+function startHlsPlayer(videoUrl){
+  const container = $('#playerContainer');
+  const video = $('#playerVideo');
+  if(!container || !video || !videoUrl) return;
+
+  destroyHls();
+  container.style.display = 'block';
+
+  const playSrc = videoUrl;
+
+  if(typeof Hls !== 'undefined' && Hls.isSupported()){
+    hlsInstance = new Hls({
+      enableWorker: true,
+      lowLatencyMode: true,
+      manifestLoadingTimeOut: 15000,
+      manifestLoadingMaxRetry: 2
+    });
+
+    hlsInstance.loadSource(playSrc);
+    hlsInstance.attachMedia(video);
+
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, function(){
+      video.play().catch(function(e){ console.log('自动播放被拦截:', e); });
+    });
+
+    let triedProxy = false;
+    hlsInstance.on(Hls.Events.ERROR, function(event, data){
+      if(!data || !data.fatal) return;
+      switch(data.type){
+        case Hls.ErrorTypes.NETWORK_ERROR:
+          if(!triedProxy && !playSrc.startsWith(CONFIG.relay)){
+            triedProxy = true;
+            console.warn('网络错误，尝试通过中转加载 m3u8');
+            hlsInstance.loadSource(CONFIG.relay + encodeURIComponent(videoUrl));
+          }else{
+            toast('视频加载失败：网络错误');
+          }
+          break;
+        case Hls.ErrorTypes.MEDIA_ERROR:
+          try{ hlsInstance.recoverMediaError(); }catch(e){ toast('视频解码失败'); }
+          break;
+        default:
+          destroyHls();
+          toast('播放器遇到致命错误');
+          break;
+      }
+    });
+  }
+  else if(video.canPlayType('application/vnd.apple.mpegurl')){
+    video.src = playSrc;
+    video.addEventListener('loadedmetadata', function(){
+      video.play().catch(function(){});
+    }, { once:true });
+  }
+  else{
+    toast('当前浏览器不支持 HLS 播放');
+  }
+}
+
+/* ============================================================
+   网络请求
+   ============================================================ */
+async function fetchViaRelay(url, opts, timeout){
+  const target = CONFIG.relay + encodeURIComponent(url);
+  const r = await fetchWithTimeout(target, opts || {}, timeout);
+  if(!r.ok) throw new Error('中转返回状态码 ' + r.status);
+  return await r.text();
+}
+
+async function requestSearch(keyword){
+  const src = SOURCES[currentSource];
+
+  // 先访问首页，拿 Cookie（代理内部会缓存）
+  try {
+    await fetchViaRelay(src.base + '/', { method: 'GET' });
+  } catch (e) {
+    console.warn('预热首页失败:', e.message);
+  }
+
+  // 用 POST 搜索
+  const postOpts = src.getSearchOptions(keyword);
+  let txt = '';
+  try {
+    txt = await fetchViaRelay(src.getSearchUrl(), postOpts);
+  } catch (e) {
+    console.warn('POST 搜索失败，尝试 GET:', e.message);
+    txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
+  }
+
+  if(!txt || txt.length < 100){
+    throw new Error('返回内容为空（长度 ' + (txt ? txt.length : 0) + '）');
+  }
+  return txt;
+}
+
+async function requestUrl(url){
+  return await fetchViaRelay(url, {});
+}
+
+
+/* ============================================================
+   UI 渲染
+   ============================================================ */
+function renderSkeleton(n){
+  n = n || 8;
+  let html = '<div class="grid">';
+  for(let i=0;i<n;i++){
+    html += '<div class="skeleton">' +
+      '<div class="sk-cover"></div>' +
+      '<div class="sk-line"></div>' +
+      '<div class="sk-line short"></div>' +
+    '</div>';
+  }
+  html += '</div>';
+  $('#content').innerHTML = html;
+  $('#stat').style.display = 'none';
+}
+
+function rankClass(r){
+  const n = parseFloat(r);
+  if(isNaN(n)) return '';
+  if(n >= 8) return '';
+  if(n >= 6) return 'mid';
+  return 'low';
+}
+
+function createCardElement(it, index){
+  const div = document.createElement('div');
+  div.className = 'card';
+  div.style.animationDelay = ((index % 12) * 40) + 'ms';
+
+  const rankHtml = it.rank
+    ? '<span class="rank ' + rankClass(it.rank) + '">' + escapeHtml(it.rank) + '</span>'
+    : '';
+
+  const coverHtml = it.cover
+    ? '<img src="' + escapeAttr(it.cover) + '" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">'
+    : '';
+
+  const subLine = it.year || it.region || it.status || '';
+
+  div.innerHTML =
+    '<div class="cover">' + rankHtml + coverHtml + '</div>' +
+    '<div class="cardbody">' +
+      '<h3 title="' + escapeAttr(it.name) + '">' + escapeHtml(it.name) + '</h3>' +
+      '<div class="year">' + escapeHtml(subLine) + '</div>' +
+    '</div>';
+
+  div.addEventListener('animationend', function(){
+    div.classList.add('animated');
+  }, { once:true });
+
+  div.addEventListener('click', function(){
+    openDetail(it);
+  });
+
+  return div;
+}
+
+function renderCards(list, keyword){
+  if(!list || !list.length){
+    renderEmpty('没有找到相关影片', keyword);
+    return;
+  }
+
+  const contentBox = $('#content');
+  contentBox.innerHTML = '<div class="grid"></div><div class="pagination-box" id="paginationBox"></div>';
+  const grid = contentBox.querySelector('.grid');
+
+  list.forEach((it, i) => {
+    grid.appendChild(createCardElement(it, i));
+  });
+
+  $('#stat').style.display = 'block';
+  $('#stat').innerHTML = '[' + SOURCES[currentSource].name + '] 共 <b>' +
+    pageState.totalCount + '</b> 条结果 | 当前第 <b>' +
+    pageState.currentPage + '</b> / <b>' + pageState.totalPages + '</b> 页';
+
+  updatePaginationUI();
+}
+
+function updatePaginationUI(){
+  const box = $('#paginationBox');
+  if(!box) return;
+
+  if(pageState.totalPages > 1 || pageState.hasPrev || pageState.hasMore){
+    box.className = 'pagination-box';
+    box.innerHTML =
+      '<button class="btn-page" id="btnPrevPage"' + (pageState.hasPrev ? '' : ' disabled') + '>上一页</button>' +
+      '<span class="page-info">第 <b>' + pageState.currentPage + '</b> / <b>' + pageState.totalPages + '</b> 页</span>' +
+      '<button class="btn-page" id="btnNextPage"' + (pageState.hasMore ? '' : ' disabled') + '>下一页</button>';
+
+    const prevBtn = $('#btnPrevPage');
+    const nextBtn = $('#btnNextPage');
+
+    if(prevBtn && pageState.hasPrev){
+      prevBtn.onclick = function(){ gotoPage(pageState.prevUrl); };
+    }
+    if(nextBtn && pageState.hasMore){
+      nextBtn.onclick = function(){ gotoPage(pageState.nextUrl); };
+    }
+  }else{
+    box.className = 'pagination-box';
+    box.innerHTML = pageState.totalCount > 0
+      ? '<span style="font-size:12px;color:var(--sub)">— 已加载全部搜索结果 —</span>'
+      : '';
+  }
+}
+
+function renderEmpty(msg, keyword){
+  $('#stat').style.display = 'none';
+  $('#content').innerHTML =
+    '<div class="empty">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+        '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>' +
+      '</svg>' +
+      '<p>' + escapeHtml(msg) + '</p>' +
+      (keyword ? '<button class="retry" id="btnRetry">重新搜索</button>' : '') +
+    '</div>';
+  const r = $('#btnRetry');
+  if(r) r.onclick = function(){ doSearch(keyword); };
+}
+
+function renderError(msg, keyword){
+  $('#stat').style.display = 'none';
+  $('#content').innerHTML =
+    '<div class="empty">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">' +
+        '<circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/>' +
+      '</svg>' +
+      '<p>' + escapeHtml(msg) + '</p>' +
+      '<button class="retry" id="btnRetry">重试</button>' +
+    '</div>';
+  const r = $('#btnRetry');
+  if(r) r.onclick = function(){ doSearch(keyword); };
+}
+
+/* 渲染视频解析面板 */
+function renderJiexiUI(){
+  $('#stat').style.display = 'none';
+  const html =
+    '<div class="jiexi-box">' +
+      '<div class="jiexi-card">' +
+        '<div class="jiexi-row">' +
+          '<label>线路选择：</label>' +
+          '<select id="jiexiLine" class="jiexi-select">' +
+            '<option value="https://im1907.top/?jx=">直搜片名</option>' +
+            '<option value="https://jx.xymp4.cc/?url=">闲鱼云解析</option>' +
+            '<option value="https://jx.77flv.cc/?url=">七哥解析1</option>' +
+            '<option value="https://jx.77flv.cc/?url=">七哥解析2</option>' +
+            '<option value="https://jx.aidouer.net/?url=">爱豆</option>' +
+          '</select>' +
+        '</div>' +
+        '<div class="jiexi-input-group">' +
+          '<input type="text" id="jiexiInput" placeholder="请输入电影名称或视频播放链接URL" autocomplete="off">' +
+          '<button id="btnJiexiDo">点击解析</button>' +
+        '</div>' +
+        '<div class="jiexi-player" id="jiexiPlayer">' +
+          '<iframe id="jiexiFrame" allowfullscreen allow="autoplay; encrypted-media"></iframe>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  $('#content').innerHTML = html;
+
+  const kw = $('#kw').value.trim();
+  if(kw) $('#jiexiInput').value = kw;
+
+  const doJiexi = function(){
+    const val = $('#jiexiInput').value.trim();
+    if(!val){ toast('请输入内容'); return; }
+    const line = $('#jiexiLine').value;
+    const player = $('#jiexiPlayer');
+    const frame = $('#jiexiFrame');
+    player.style.display = 'block';
+    frame.src = line + encodeURIComponent(val);
+    toast('已发起解析');
+  };
+
+  $('#btnJiexiDo').onclick = doJiexi;
+  $('#jiexiInput').addEventListener('keydown', function(e){
+    if(e.key === 'Enter' || e.keyCode === 13){
+      e.preventDefault();
+      doJiexi();
+    }
+  });
+}
+
+/* ============================================================
+   核心业务
+   ============================================================ */
+async function doSearch(keyword){
+  keyword = (keyword || '').trim();
+  if(!keyword){ toast('请输入关键词'); return; }
+
+  pageState.currentKeyword = keyword;
+  pageState.prevUrl = '';
+  pageState.nextUrl = '';
+  pageState.hasPrev = false;
+  pageState.hasMore = false;
+
+  const btn = $('#btnSearch');
+  btn.classList.add('loading');
+  renderSkeleton();
+
+  try{
+    const html = await requestSearch(keyword);
+    const result = SOURCES[currentSource].parseList(html);
+
+    pageState.prevUrl     = result.prevUrl || '';
+    pageState.nextUrl     = result.nextUrl || '';
+    pageState.hasPrev     = !!result.hasPrev;
+    pageState.hasMore     = !!result.hasMore;
+    pageState.currentPage = result.currentPage || 1;
+    pageState.totalPages  = result.totalPages || 1;
+    pageState.totalCount  = result.totalCount || result.list.length;
+
+    renderCards(result.list, keyword);
+  }catch(e){
+    console.error(e);
+    renderError('请求失败：' + (e.message || '未知错误'), keyword);
+  }finally{
+    btn.classList.remove('loading');
+  }
+}
+
+async function gotoPage(targetUrl){
+  if(!targetUrl) return;
+
+  renderSkeleton();
+  window.scrollTo({ top:0, behavior:'smooth' });
+
+  try{
+    const html = await requestUrl(targetUrl);
+    const result = SOURCES[currentSource].parseList(html);
+
+    pageState.prevUrl     = result.prevUrl || '';
+    pageState.nextUrl     = result.nextUrl || '';
+    pageState.hasPrev     = !!result.hasPrev;
+    pageState.hasMore     = !!result.hasMore;
+    pageState.currentPage = result.currentPage || 1;
+    pageState.totalPages  = result.totalPages || 1;
+    pageState.totalCount  = result.totalCount || result.list.length;
+
+    renderCards(result.list, pageState.currentKeyword);
+  }catch(e){
+    console.error(e);
+    toast('加载页面失败：' + e.message);
+    renderError('页面加载失败：' + (e.message || '未知错误'), pageState.currentKeyword);
+  }
+}
+
+function closeDetailUI(){
+  destroyHls();
+  $('#mask').classList.remove('show');
+  currentDetailItem = null;
+}
+
+function closeDetail(){
+  if(!detailOpen) return;
+  detailOpen = false;
+  closeDetailUI();
+  try{ history.back(); }catch(e){}
+}
+
+async function openDetail(item){
+  if(detailOpen) return;
+  detailOpen = true;
+  currentDetailItem = item;
+
+  try{ history.pushState({ detail:true }, ''); }catch(e){}
+
+  $('#mask').classList.add('show');
+  $('#dName').textContent = item.name + (item.year ? ' (' + item.year + ')' : '');
+  $('#dMeta').textContent = item.rank ? ('信息/评分: ' + item.rank) : (item.region || '');
+  $('#dThumb').style.backgroundImage = item.cover ? "url('" + item.cover + "')" : 'none';
+  $('#dBody').innerHTML = '<div class="empty" style="padding:30px 0">正在加载资源…</div>';
+
+  try{
+    const html = await requestUrl(item.href);
+    if(!detailOpen) return;
+
+    const detailData = SOURCES[currentSource].parseDetail(html);
+
+    if(detailData.cover){
+      $('#dThumb').style.backgroundImage = "url('" + detailData.cover + "')";
+    }
+
+    let body = '';
+
+    body +=
+      '<div class="playbox" id="playerBox" style="display:none;">' +
+        '<div class="ptitle">▶ 在线播放器</div>' +
+        '<div class="paddr ok" id="paddr">已载入播放节点</div>' +
+        '<div class="player-container" id="playerContainer">' +
+          '<video id="playerVideo" controls playsinline webkit-playsinline></video>' +
+        '</div>' +
+      '</div>';
+
+    if(detailData.playPageUrl){
+      body +=
+        '<div class="playbox">' +
+          '<div class="ptitle">▶ 播放探测</div>' +
+          '<div class="paddr probing" id="paddrProbe">正在探测真实播放地址…</div>' +
+          '<div class="row" id="playBtns" style="display:none">' +
+            '<button class="btn btn-play-copy">复制链接</button>' +
+            '<button class="btn btn-play-open">点击播放</button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    if(detailData.playList && detailData.playList.length){
+      body += '<div class="section-title">在线播放列表（' + detailData.playList.length + '）</div>';
+      body += detailData.playList.map(function(p, i){
+        return '<div class="episode-item" style="animation-delay:' + (i * 30) + 'ms">' +
+          '<div class="fname" title="' + escapeAttr(p.title) + '">' + escapeHtml(p.title) + '</div>' +
+          '<div class="row">' +
+            '<div class="btns">' +
+              '<button class="btn btn-copy" data-url="' + escapeAttr(p.url) + '">复制 m3u8</button>' +
+              '<button class="btn btn-open btn-play-ep" data-url="' + escapeAttr(p.url) + '">立即播放</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    if(detailData.magnets && detailData.magnets.length){
+      body += '<div class="section-title">磁力资源（' + detailData.magnets.length + '）</div>';
+      body += detailData.magnets.map(function(m, i){
+        return '<div class="magnet" style="animation-delay:' + (i * 30) + 'ms">' +
+          '<div class="fname" title="' + escapeAttr(m.title) + '">' + escapeHtml(m.title) + '</div>' +
+          '<div class="row">' +
+            (m.size ? '<span class="size">' + escapeHtml(m.size) + '</span>' : '') +
+            '<div class="btns">' +
+              '<button class="btn btn-copy" data-magnet="' + escapeAttr(m.magnet) + '">磁力复制</button>' +
+              '<button class="btn btn-open" data-magnet="' + escapeAttr(m.magnet) + '">磁力打开</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    const hasAnything =
+      detailData.playPageUrl ||
+      (detailData.magnets && detailData.magnets.length) ||
+      (detailData.playList && detailData.playList.length);
+
+    if(!hasAnything){
+      body += '<div class="empty" style="padding:30px 0"><p>该影片暂未解析到磁力或播放地址</p></div>';
+    }
+
+    $('#dBody').innerHTML = body;
+
+    $$('#dBody .btn-copy[data-magnet]').forEach(function(b){
+      b.onclick = async function(){
+        const ok = await copyText(b.dataset.magnet);
+        if(ok){ copyFeedback(b, '已复制 ✓'); toast('磁力链接已复制'); }
+        else toast('复制失败');
+      };
+    });
+
+    $$('#dBody .btn-open[data-magnet]').forEach(function(b){
+      b.onclick = function(){
+        try{ location.href = b.dataset.magnet; }catch(e){ toast('无法打开磁力链接'); }
+      };
+    });
+
+    $$('#dBody .btn-copy[data-url]').forEach(function(b){
+      b.onclick = async function(){
+        const ok = await copyText(b.dataset.url);
+        if(ok){ copyFeedback(b, '已复制 ✓'); toast('播放链接已复制'); }
+        else toast('复制失败');
+      };
+    });
+
+    $$('#dBody .btn-play-ep').forEach(function(b){
+      b.onclick = function(){
+        const url = b.dataset.url;
+        $('#playerBox').style.display = 'block';
+        $('#paddr').textContent = url;
+        startHlsPlayer(url);
+        $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+      };
+    });
+
+    if(detailData.playPageUrl){
+      probePlayUrl(detailData.playPageUrl);
+    }
+
+  }catch(e){
+    console.error(e);
+    if(!detailOpen) return;
+    $('#dBody').innerHTML = '<div class="empty" style="padding:30px 0">' +
+      '<p>加载失败：' + escapeHtml(e.message || '未知错误') + '</p></div>';
+  }
+}
+
+async function probePlayUrl(playPageUrl){
+  const paddr = $('#paddrProbe');
+  const playBtns = $('#playBtns');
+  if(!paddr || !playBtns) return;
+
+  let finalUrl = playPageUrl;
+  let detected = false;
+
+  try{
+    const html = await requestUrl(playPageUrl);
+    const v = extractVideoUrl(html);
+    if(v){ finalUrl = v; detected = true; }
+  }catch(e){
+    console.warn('探测失败：', e.message);
+  }
+
+  if(!detailOpen) return;
+
+  if(detected){
+    paddr.className = 'paddr ok';
+    paddr.textContent = finalUrl;
+    toast('已探测到播放地址');
+  }else{
+    paddr.className = 'paddr fail';
+    paddr.textContent = '未探测到 m3u8/mp4，使用原始地址：' + finalUrl;
+  }
+
+  playBtns.style.display = 'flex';
+
+  const copyBtn = playBtns.querySelector('.btn-play-copy');
+  const openBtn = playBtns.querySelector('.btn-play-open');
+
+  if(copyBtn){
+    copyBtn.onclick = async function(){
+      const ok = await copyText(finalUrl);
+      if(ok){ copyFeedback(copyBtn, '已复制 ✓'); toast('播放地址已复制'); }
+      else toast('复制失败');
+    };
+  }
+
+  if(openBtn){
+    openBtn.onclick = function(){
+      $('#playerBox').style.display = 'block';
+      $('#paddr').textContent = finalUrl;
+      startHlsPlayer(finalUrl);
+      $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+    };
+  }
+}
+
+/* ============================================================
+   事件绑定
+   ============================================================ */
+window.addEventListener('popstate', function(){
+  if(detailOpen){
+    detailOpen = false;
+    closeDetailUI();
+  }
+});
+
+$$('.src-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    if(btn.classList.contains('active')) return;
+
+    $$('.src-btn').forEach(function(b){ b.classList.remove('active'); });
+    btn.classList.add('active');
+    currentSource = btn.dataset.source;
+
+    // 重置分页状态
+    pageState.prevUrl = '';
+    pageState.nextUrl = '';
+    pageState.hasPrev = false;
+    pageState.hasMore = false;
+    pageState.currentPage = 1;
+    pageState.totalPages = 1;
+    pageState.totalCount = 0;
+
+    if(currentSource === 'jiexi'){
+      $('.searchrow').style.display = 'none';
+      toast('已切换：视频解析');
+      renderJiexiUI();
+    }else{
+      $('.searchrow').style.display = 'flex';
+      toast('已切换数据源：' + SOURCES[currentSource].name);
+      const kw = $('#kw').value.trim();
+      if(kw){
+        doSearch(kw);
+      }else{
+        $('#content').innerHTML = '';
+        $('#stat').style.display = 'none';
+      }
+    }
+  });
+});
+
+$('#btnSearch').onclick = function(){ doSearch($('#kw').value); };
+
+$('#kw').addEventListener('keydown', function(e){
+  if(e.key === 'Enter' || e.keyCode === 13){
+    e.preventDefault();
+    doSearch($('#kw').value);
+  }
+});
+
+$('#btnClose').onclick = closeDetail;
+
+$('#mask').addEventListener('click', function(e){
+  if(e.target.id === 'mask') closeDetail();
+});
+
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape') closeDetail();
+});
+
+$('#kw').value = '';
+</script>
+</body>
+</html>

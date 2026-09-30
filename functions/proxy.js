@@ -1,14 +1,8 @@
 const ALLOW_ORIGIN = '*';
-
-// 需要自动获取 cookie 的站点
-const COOKIE_HOSTS = {
-  'www.dushe3.app': {
-    home: 'https://www.dushe3.app/',
-    cookieName: 'cdndefend_js_cookie',
-  },
-};
-
 const UA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Mobile Safari/537.36';
+
+// 使用 Worker 内存存储 Cookie，彻底替代触发 500 的 Cache API
+const cookieStore = new Map();
 
 export async function onRequest(context) {
   const { request } = context;
@@ -27,65 +21,51 @@ export async function onRequest(context) {
     });
   }
 
-  let targetOrigin = '';
-  let targetHost = '';
+  try {
+    return await fetchWithAutoProxy(target, request);
+  } catch (e) {
+    return new Response(JSON.stringify({ error: '中转执行异常: ' + e.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json', ...cors() }
+    });
+  }
+}
+
+async function fetchWithAutoProxy(target, request) {
+  let targetOrigin = '', targetHost = '';
   try {
     const t = new URL(target);
     targetOrigin = t.origin;
     targetHost = t.host;
   } catch {}
 
-  // ===== 关键：自动获取 cookie =====
-  let autoCookie = '';
-  if (COOKIE_HOSTS[targetHost]) {
-    autoCookie = await getHostCookie(targetHost);
+  const initHeaders = {
+    'User-Agent': UA,
+    'Referer': target,
+    'Origin': targetOrigin,
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9',
+  };
+
+  // 自动注入之前解析出的 Cookie
+  if (cookieStore.has(targetHost)) {
+    initHeaders['Cookie'] = cookieStore.get(targetHost);
   }
 
   const init = {
     method: request.method,
-    headers: {
-      'User-Agent': UA,
-      'Referer': target,
-      'Origin': targetOrigin,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'zh-CN,zh;q=0.9',
-    },
+    headers: initHeaders,
     redirect: 'manual',
   };
 
-  const manualCookie = request.headers.get('x-target-cookie') || '';
-  if (manualCookie) {
-    init.headers['Cookie'] = manualCookie;
-  } else if (autoCookie) {
-    init.headers['Cookie'] = autoCookie;
-  }
-
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     init.body = await request.arrayBuffer();
-    const ct = request.headers.get('content-type') || 'application/x-www-form-urlencoded';
-    init.headers['Content-Type'] = ct;
+    init.headers['Content-Type'] = request.headers.get('content-type') || 'application/x-www-form-urlencoded';
   }
 
-  let resp;
-  try {
-    resp = await fetch(target, init);
-  } catch (e) {
-    return new Response(JSON.stringify({ error: '转发失败: ' + e.message }), {
-      status: 502,
-      headers: { 'Content-Type': 'application/json', ...cors() }
-    });
-  }
+  let resp = await fetch(target, init);
 
-  // 目标返回新的 Set-Cookie，更新缓存
-  if (COOKIE_HOSTS[targetHost]) {
-    const setCookie = resp.headers.get('set-cookie');
-    if (setCookie) {
-      const name = COOKIE_HOSTS[targetHost].cookieName;
-      const m = setCookie.match(new RegExp(name + '=[^;]+'));
-      if (m) await cacheCookie(targetHost, m[0]);
-    }
-  }
-
+  // 处理 HTTP 30x 重定向
   if ([301, 302, 303, 307, 308].includes(resp.status)) {
     const loc = resp.headers.get('location');
     if (loc) {
@@ -99,7 +79,63 @@ export async function onRequest(context) {
     }
   }
 
+  // 读取响应头中的 Set-Cookie
+  const setCookie = resp.headers.get('set-cookie');
+  if (setCookie) {
+    const m = setCookie.match(/cdndefend_js_cookie=[^;]+/);
+    if (m) cookieStore.set(targetHost, m[0]);
+  }
+
+  // 判定是否命中前端 JS 防火墙（5秒盾）
+  const contentType = resp.headers.get('content-type') || '';
+  if (contentType.includes('text/html')) {
+    const text = await resp.text();
+
+    if (text.includes('cdndefend_js_cookie')) {
+      const solvedCookie = parseJsCookie(text);
+      if (solvedCookie) {
+        cookieStore.set(targetHost, solvedCookie);
+
+        // 自动带上破解出的 Cookie 二次无感重新请求
+        init.headers['Cookie'] = solvedCookie;
+        resp = await fetch(target, init);
+        
+        const secondBody = await resp.arrayBuffer();
+        return buildResponse(secondBody, resp);
+      }
+    }
+    return buildResponse(new TextEncoder().encode(text), resp);
+  }
+
   const body = await resp.arrayBuffer();
+  return buildResponse(body, resp);
+}
+
+// 在 Worker 端自动正则提取/计算 cdndefend_js_cookie
+function parseJsCookie(html) {
+  try {
+    // 提取脚本中的 Cookie 直接赋值或运算式
+    const matchDirect = html.match(/cdndefend_js_cookie\s*=\s*['"]?([^'";]+)['"]?/i) ||
+                        html.match(/cookie\s*=\s*['"](cdndefend_js_cookie=[^;'"]+)['"]/i);
+    if (matchDirect && matchDirect[1]) {
+      return matchDirect[1].includes('=') ? matchDirect[1] : `cdndefend_js_cookie=${matchDirect[1]}`;
+    }
+
+    const scriptMatch = html.match(/<script>([\s\S]*?)<\/script>/i);
+    if (scriptMatch) {
+      const code = scriptMatch[1];
+      const valMatch = code.match(/cdndefend_js_cookie=['"]?([a-zA-Z0-9%_-]+)/);
+      if (valMatch) {
+        return `cdndefend_js_cookie=${valMatch[1]}`;
+      }
+    }
+  } catch (e) {
+    console.error('JS Challenge 自动破盾失败:', e);
+  }
+  return null;
+}
+
+function buildResponse(body, resp) {
   const headers = new Headers(cors());
   const ct = resp.headers.get('content-type');
   if (ct) headers.set('Content-Type', ct);
@@ -110,61 +146,6 @@ export async function onRequest(context) {
 
   return new Response(body, { status: resp.status, headers });
 }
-
-/* ========== cookie 缓存 ========== */
-
-async function getHostCookie(host) {
-  const cache = caches.default;
-  const cached = await cache.match(cookieCacheKey(host));
-  if (cached) {
-    const txt = await cached.text();
-    if (txt) return txt;
-  }
-  return await refreshHostCookie(host);
-}
-
-async function refreshHostCookie(host) {
-  const cfg = COOKIE_HOSTS[host];
-  if (!cfg) return '';
-  try {
-    const res = await fetch(cfg.home, {
-      headers: {
-        'User-Agent': UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-      },
-      redirect: 'follow',
-    });
-    const raw = res.headers.get('set-cookie') || '';
-    const m = raw.match(new RegExp(cfg.cookieName + '=[^;]+'));
-    if (!m) {
-      console.warn('首页未返回目标 cookie:', raw);
-      return '';
-    }
-    await cacheCookie(host, m[0]);
-    return m[0];
-  } catch (e) {
-    console.error('获取 cookie 失败:', e);
-    return '';
-  }
-}
-
-async function cacheCookie(host, cookie) {
-  const cache = caches.default;
-  const resp = new Response(cookie, {
-    headers: {
-      'Cache-Control': 'max-age=1800',
-      'Content-Type': 'text/plain',
-    },
-  });
-  await cache.put(cookieCacheKey(host), resp);
-}
-
-function cookieCacheKey(host) {
-  return new Request('https://cookie-cache.internal/' + host);
-}
-
-/* ========== CORS ========== */
 
 function cors() {
   return {

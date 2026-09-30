@@ -336,132 +336,139 @@ const SOURCES = {
     getHomeUrl: function(){
       return this.base + '/';
     },
-
-    parseToken: function(html){
-      const matches = html.match(/t=([A-Za-z0-9+/=]+)/g) || [];
-      for (let i = 0; i < matches.length; i++){
-        const v = matches[i].slice(2);
-        if (v && v.length > 6 && v.indexOf('<') === -1 && v.indexOf('>') === -1) {
-          return v;
-        }
+  parseToken: function(html){
+    // 允许 t 值里含 URL 编码字符 %XX、+、=、/
+    const matches = html.match(/t=([A-Za-z0-9+/=%]+)/g) || [];
+    for (let i = 0; i < matches.length; i++){
+      const v = matches[i].slice(2);
+      if (v && v.length > 6 && v.indexOf('<') === -1 && v.indexOf('>') === -1) {
+        return v;
       }
-      return '';
-    },
+    }
+    return '';
+  },
 
-    getSearchUrl: function(kw, token){
-      return this.base + '/search?t=' + encodeURIComponent(token) +
-             '&k=' + encodeURIComponent(kw);
-    },
+  getSearchUrl: function(kw, token){
+    // t 若已是 %XX 编码形式，直接用；若是原始 base64，才 encode
+    let tEncoded;
+    if (token.indexOf('%') !== -1) {
+      tEncoded = token;
+    } else {
+      tEncoded = encodeURIComponent(token);
+    }
+    return this.base + '/search?t=' + tEncoded +
+           '&k=' + encodeURIComponent(kw);
+  },
 
-    getSearchUrlGet: function(kw){ return ''; },
-    getSearchOptions: function(kw){ return { method:'GET' }; },
+  getSearchUrlGet: function(kw){ return ''; },
+  getSearchOptions: function(kw){ return { method:'GET' }; },
 
-    parseList: function(html){
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const list = [];
-      const seen = new Set();
+  parseList: function(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const list = [];
+    const seen = new Set();
 
-      doc.querySelectorAll('a.search-result-item').forEach(a => {
-        const href = a.getAttribute('href') || '';
-        if (!href || seen.has(href)) return;
-        seen.add(href);
+    doc.querySelectorAll('a.search-result-item').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if (!href || seen.has(href)) return;
+      seen.add(href);
 
-        const titleEl = a.querySelector('.search-result-item-main .title');
-        const name = titleEl ? titleEl.textContent.trim() : '';
-        if (!name) return;
-
-        let cover = '';
-        const imgEl = a.querySelector('.search-result-item-pic img');
-        if (imgEl){
-          const src = imgEl.getAttribute('src') || '';
-          const ori = imgEl.getAttribute('data-original') || '';
-          cover = (src && src.indexOf('logo_placeholder') === -1)
-                    ? src
-                    : (ori && ori.indexOf('logo_placeholder') === -1 ? ori : '');
-        }
-
-        const tagEls = a.querySelectorAll('.search-result-item-main .tags span');
-        let year = '', region = '', type = '';
-        if (tagEls.length >= 1) year   = tagEls[0].textContent.trim();
-        if (tagEls.length >= 2) region = tagEls[1].textContent.trim();
-        if (tagEls.length >= 3) type   = tagEls[2].textContent.trim();
-
-        const subParts = [year, region, type].filter(Boolean);
-
-        list.push({
-          name,
-          year: subParts.join(' / '),
-          rank: '',
-          region: region,
-          status: '',
-          cover: abs(cover, this.base),
-          href: abs(href, this.base),
-        });
-      });
-
-      let nextUrl = '', hasMore = false;
-      const nextA = doc.querySelector('.pagenation-box a.page-item-next');
-      if (nextA){
-        const nhref = nextA.getAttribute('href') || '';
-        if (nhref && !nhref.includes('javascript:')){
-          nextUrl = abs(nhref, this.base);
-          hasMore = true;
-        }
-      }
-
-      return {
-        list,
-        prevUrl: '',
-        nextUrl,
-        hasPrev: false,
-        hasMore,
-        currentPage: 1,
-        totalPages: hasMore ? 2 : 1,
-        totalCount: list.length,
-      };
-    },
-
-    parseDetail: function(html){
-      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const titleEl = a.querySelector('.search-result-item-main .title');
+      const name = titleEl ? titleEl.textContent.trim() : '';
+      if (!name) return;
 
       let cover = '';
-      const imgEl = doc.querySelector('.detail-pic img, .vod-img img, .pic img');
-      if (imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
+      const imgEl = a.querySelector('.search-result-item-pic img');
+      if (imgEl){
+        const src = imgEl.getAttribute('src') || '';
+        const ori = imgEl.getAttribute('data-original') || '';
+        cover = (src && src.indexOf('logo_placeholder') === -1)
+                  ? src
+                  : (ori && ori.indexOf('logo_placeholder') === -1 ? ori : '');
+      }
 
-      const sources = [];
-      doc.querySelectorAll('.source-item').forEach(el => {
-        const labelEl = el.querySelector('.source-item-label');
-        const numEl   = el.querySelector('.source-item-num');
-        if (!labelEl) return;
-        sources.push({
-          name: labelEl.textContent.trim(),
-          count: numEl ? parseInt(numEl.textContent.trim(), 10) || 0 : 0,
-          active: el.classList.contains('source-item-active'),
-        });
+      const tagEls = a.querySelectorAll('.search-result-item-main .tags span');
+      let year = '', region = '', type = '';
+      if (tagEls.length >= 1) year   = tagEls[0].textContent.trim();
+      if (tagEls.length >= 2) region = tagEls[1].textContent.trim();
+      if (tagEls.length >= 3) type   = tagEls[2].textContent.trim();
+
+      const subParts = [year, region, type].filter(Boolean);
+
+      list.push({
+        name,
+        year: subParts.join(' / '),
+        rank: '',
+        region: region,
+        status: '',
+        cover: abs(cover, this.base),
+        href: abs(href, this.base),
       });
+    });
 
-      const episodes = [];
-      doc.querySelectorAll('.episode-list .episode-item').forEach(a => {
-        const href = a.getAttribute('href') || '';
-        const spanEl = a.querySelector('span');
-        const title = spanEl ? spanEl.textContent.trim() : '';
-        if (!href) return;
-        episodes.push({
-          title: title || ('第 ' + (episodes.length + 1) + ' 集'),
-          href: abs(href, this.base),
-        });
-      });
-
-      return {
-        cover,
-        magnets: [],
-        playPageUrl: '',
-        playList: [],
-        _sources: sources,
-        _episodes: episodes,
-      };
+    let nextUrl = '', hasMore = false;
+    const nextA = doc.querySelector('.pagenation-box a.page-item-next');
+    if (nextA){
+      const nhref = nextA.getAttribute('href') || '';
+      if (nhref && !nhref.includes('javascript:')){
+        nextUrl = abs(nhref, this.base);
+        hasMore = true;
+      }
     }
+
+    return {
+      list,
+      prevUrl: '',
+      nextUrl,
+      hasPrev: false,
+      hasMore,
+      currentPage: 1,
+      totalPages: hasMore ? 2 : 1,
+      totalCount: list.length,
+    };
+  },
+
+  parseDetail: function(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    let cover = '';
+    const imgEl = doc.querySelector('.detail-pic img, .vod-img img, .pic img');
+    if (imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
+
+    const sources = [];
+    doc.querySelectorAll('.source-item').forEach(el => {
+      const labelEl = el.querySelector('.source-item-label');
+      const numEl   = el.querySelector('.source-item-num');
+      if (!labelEl) return;
+      sources.push({
+        name: labelEl.textContent.trim(),
+        count: numEl ? parseInt(numEl.textContent.trim(), 10) || 0 : 0,
+        active: el.classList.contains('source-item-active'),
+      });
+    });
+
+    const episodes = [];
+    doc.querySelectorAll('.episode-list .episode-item').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      const spanEl = a.querySelector('span');
+      const title = spanEl ? spanEl.textContent.trim() : '';
+      if (!href) return;
+      episodes.push({
+        title: title || ('第 ' + (episodes.length + 1) + ' 集'),
+        href: abs(href, this.base),
+      });
+    });
+
+    return {
+      cover,
+      magnets: [],
+      playPageUrl: '',
+      playList: [],
+      _sources: sources,
+      _episodes: episodes,
+    };
   }
+}
 };
 
 /* ============================================================

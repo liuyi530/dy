@@ -35,7 +35,7 @@ export async function onRequest(context) {
     targetHost = t.host;
   } catch {}
 
-  // ===== 自动获取 cookie =====
+  // ===== 关键：自动获取 cookie =====
   let autoCookie = '';
   if (COOKIE_HOSTS[targetHost]) {
     autoCookie = await getHostCookie(targetHost);
@@ -76,7 +76,7 @@ export async function onRequest(context) {
     });
   }
 
-  // 目标返回了新的 Set-Cookie，更新缓存
+  // 目标返回新的 Set-Cookie，更新缓存
   if (COOKIE_HOSTS[targetHost]) {
     const setCookie = resp.headers.get('set-cookie');
     if (setCookie) {
@@ -86,7 +86,6 @@ export async function onRequest(context) {
     }
   }
 
-  // 重定向
   if ([301, 302, 303, 307, 308].includes(resp.status)) {
     const loc = resp.headers.get('location');
     if (loc) {
@@ -112,7 +111,7 @@ export async function onRequest(context) {
   return new Response(body, { status: resp.status, headers });
 }
 
-/* ========= cookie 缓存 ========= */
+/* ========== cookie 缓存 ========== */
 
 async function getHostCookie(host) {
   const cache = caches.default;
@@ -165,7 +164,7 @@ function cookieCacheKey(host) {
   return new Request('https://cookie-cache.internal/' + host);
 }
 
-/* ========= CORS ========= */
+/* ========== CORS ========== */
 
 function cors() {
   return {

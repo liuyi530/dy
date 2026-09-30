@@ -424,6 +424,24 @@ function escapeHtml(s){
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[c]));
 }
+
+function extractM3u8FromPlayPage(html){
+  if(!html) return '';
+
+  // 优先 player_aaaa 里的 url
+  const mPlayer = html.match(/"url"\s*:\s*"([^"]+\.m3u8[^"]*)"/i);
+  if(mPlayer) return mPlayer[1].replace(/\\\//g, '/');
+
+  // 其次 src: "xxx.m3u8"
+  const mSrc = html.match(/src\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i);
+  if(mSrc) return mSrc[1].replace(/\\\//g, '/');
+
+  // 兜底
+  const mAny = html.match(/https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i);
+  if(mAny) return mAny[0];
+
+  return '';
+}
 function escapeAttr(s){
   return escapeHtml(s).replace(/`/g,'&#96;');
 }
@@ -515,17 +533,28 @@ async function fetchViaRelay(url, opts, timeout){
 async function requestSearch(keyword){
   const src = SOURCES[currentSource];
 
-  // 1. 直接尝试 POST 搜索，不再去访问首页（避免多余的请求触发风控）
+  // ===== 毒舌：先拿首页 → 抽 t → 拼搜索 URL =====
+  if(currentSource === 'dushe3'){
+    const homeHtml = await fetchViaRelay(src.getHomeUrl(), {});
+    const token = src.parseToken(homeHtml);
+    if(!token) throw new Error('未能从首页提取到 t 参数');
+    console.log('[dushe3] token =', token);
+
+    const searchUrl = src.getSearchUrl(keyword, token);
+    const html = await fetchViaRelay(searchUrl, {});
+    if(!html || html.length < 100) throw new Error('搜索结果为空');
+    return html;
+  }
+
+  // ===== 其它数据源：原逻辑 =====
   const postOpts = src.getSearchOptions(keyword);
   let txt = '';
   try {
     txt = await fetchViaRelay(src.getSearchUrl(), postOpts);
   } catch (e) {
     console.warn('POST 搜索失败，尝试 GET:', e.message);
-    // 2. 如果 POST 报错，再尝试 GET 请求
     txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
   }
-
   if(!txt || txt.length < 100){
     throw new Error('返回内容为空（长度 ' + (txt ? txt.length : 0) + '）');
   }
@@ -840,6 +869,47 @@ async function openDetail(item){
         '</div>' +
       '</div>';
 
+// ===== 毒舌：线路切换（视觉切换）=====
+$$('#dBody .dushe-source-btn').forEach(btn => {
+  btn.onclick = function(){
+    $$('#dBody .dushe-source-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  };
+});
+
+// ===== 毒舌：点击集数 → 抓播放页 m3u8 → 播放 =====
+$$('#dBody .btn-play-dushe-ep').forEach(btn => {
+  btn.onclick = async function(){
+    const href = btn.dataset.href;
+    if(!href) return;
+
+    $('#playerBox').style.display = 'block';
+    $('#paddr').textContent = '正在解析播放地址…';
+    $('#paddr').className = 'paddr probing';
+
+    try{
+      const html = await requestUrl(href);
+      const m3u8 = extractM3u8FromPlayPage(html);
+      if(!m3u8){
+        $('#paddr').className = 'paddr fail';
+        $('#paddr').textContent = '未找到 m3u8 播放地址';
+        toast('未找到播放地址');
+        return;
+      }
+      $('#paddr').className = 'paddr ok';
+      $('#paddr').textContent = m3u8;
+      startHlsPlayer(m3u8);
+      toast('开始播放：' + btn.dataset.title);
+      $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+    }catch(e){
+      console.error(e);
+      $('#paddr').className = 'paddr fail';
+      $('#paddr').textContent = '解析失败：' + e.message;
+      toast('解析失败');
+    }
+  };
+});
+
     if(detailData.playPageUrl){
       body +=
         '<div class="playbox">' +
@@ -888,11 +958,45 @@ async function openDetail(item){
       (detailData.magnets && detailData.magnets.length) ||
       (detailData.playList && detailData.playList.length);
 
-    if(!hasAnything){
-      body += '<div class="empty" style="padding:30px 0"><p>该影片暂未解析到磁力或播放地址</p></div>';
-    }
+// ===== 毒舌：线路 =====
+if(detailData._sources && detailData._sources.length){
+  body += '<div class="section-title">切换线路</div>';
+  body += '<div class="dushe-sources">';
+  detailData._sources.forEach((s, i) => {
+    body += '<button class="dushe-source-btn' + (s.active ? ' active' : '') +
+            '" data-idx="' + i + '">' +
+            '<span class="lbl">' + escapeHtml(s.name) + '</span>' +
+            '<span class="num">' + s.count + '</span>' +
+            '</button>';
+  });
+  body += '</div>';
+}
 
-    $('#dBody').innerHTML = body;
+// ===== 毒舌：选集 =====
+if(detailData._episodes && detailData._episodes.length){
+  body += '<div class="section-title">选集播放（' + detailData._episodes.length + '）</div>';
+  body += '<div class="dushe-episodes">';
+  detailData._episodes.forEach((ep, i) => {
+    body += '<button class="dushe-ep-btn btn-play-dushe-ep" ' +
+            'data-href="' + escapeAttr(ep.href) + '" ' +
+            'data-title="' + escapeAttr(ep.title) + '">' +
+            escapeHtml(ep.title) +
+            '</button>';
+  });
+  body += '</div>';
+}
+
+const hasAnything =
+  detailData.playPageUrl ||
+  (detailData.magnets && detailData.magnets.length) ||
+  (detailData.playList && detailData.playList.length) ||
+  (detailData._episodes && detailData._episodes.length);
+
+if(!hasAnything){
+  body += '<div class="empty" style="padding:30px 0"><p>该影片暂未解析到磁力或播放地址</p></div>';
+}
+
+$('#dBody').innerHTML = body;
 
     $$('#dBody .btn-copy[data-magnet]').forEach(function(b){
       b.onclick = async function(){

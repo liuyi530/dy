@@ -340,7 +340,7 @@ const SOURCES = {
       const matches = html.match(/t=([A-Za-z0-9+/=%]+)/g) || [];
       for (let i = 0; i < matches.length; i++){
         const v = matches[i].slice(2);
-        if (v && v.length > 6 && v.indexOf('<') === -1 && v.indexOf('>') === -1) {
+        if (v && v.length > 6 && !v.includes('<') && !v.includes('>')) {
           return v;
         }
       }
@@ -348,7 +348,7 @@ const SOURCES = {
     },
 
     getSearchUrl: function(kw, token){
-      let tEncoded = (token.indexOf('%') !== -1) ? token : encodeURIComponent(token);
+      let tEncoded = token.includes('%') ? token : encodeURIComponent(token);
       return this.base + '/search?t=' + tEncoded + '&k=' + encodeURIComponent(kw);
     },
 
@@ -382,9 +382,9 @@ const SOURCES = {
         if (imgEl){
           const src = imgEl.getAttribute('src') || '';
           const ori = imgEl.getAttribute('data-original') || '';
-          cover = (src && src.indexOf('logo_placeholder') === -1)
+          cover = (src && !src.includes('logo_placeholder'))
                     ? src
-                    : (ori && ori.indexOf('logo_placeholder') === -1 ? ori : '');
+                    : (ori && !ori.includes('logo_placeholder') ? ori : '');
         }
 
         const tagEls = a.querySelectorAll('.search-result-item-main .tags span');
@@ -657,12 +657,14 @@ function startHlsPlayer(videoUrl){
 }
 
 /* ============================================================
-   网络请求与防盾处理
+   网络请求与防盾处理（防止 500/502 Gateway 错误）
    ============================================================ */
 async function fetchViaRelay(url, opts, timeout){
   const target = CONFIG.relay + encodeURIComponent(url);
   const r = await fetchWithTimeout(target, opts || {}, timeout);
-  if(!r.ok) throw new Error('中转返回状态码 ' + r.status);
+  if(!r.ok) {
+    throw new Error('网络请求服务响应异常 (' + r.status + ')');
+  }
   return await r.text();
 }
 
@@ -703,16 +705,18 @@ async function requestSearch(keyword) {
     try {
       homeHtml = await fetchViaRelay(src.getHomeUrl(), src.getSearchOptions());
     } catch (err) {
-      console.warn('[dushe3] 访问首页遭遇错误，正在进行防御重试...', err);
+      console.warn('[dushe3] 首页初始化遇到限制，尝试解盾...', err);
     }
 
     let token = homeHtml ? src.parseToken(homeHtml) : '';
 
     if (!token) {
-      console.log('[dushe3] 命中 5 秒盾，启动后台无感计算 Cookie...');
+      console.log('[dushe3] 触发盾保护，启动无感破解计算...');
       await autoSolveDusheShield(src.getHomeUrl());
-      homeHtml = await fetchViaRelay(src.getHomeUrl(), src.getSearchOptions());
-      token = src.parseToken(homeHtml);
+      try {
+        homeHtml = await fetchViaRelay(src.getHomeUrl(), src.getSearchOptions());
+        token = src.parseToken(homeHtml);
+      } catch(e){}
     }
 
     if (!token) throw new Error('毒舌源站无响应，请重试');
@@ -739,7 +743,7 @@ async function requestUrl(url){
 }
 
 /* ============================================================
-   UI 渲染
+   UI 渲染与业务绑定
    ============================================================ */
 function renderSkeleton(n){
   n = n || 8;

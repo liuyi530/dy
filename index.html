@@ -634,6 +634,41 @@ function extractPlayerIframe(html){
   return '';
 }
 
+/* ============================================================
+   ★ 新增：从 iframe 的 url= 参数里解出明文 m3u8
+   ★ 处理这几种编码：%uXXXX（老式 escape）+ 多次 URL 编码 + 中文路径
+   ★ 解不出（加密 token）返回空字符串
+   ============================================================ */
+function extractM3U8FromIframeUrl(iframeUrl){
+  if(!iframeUrl) return '';
+  const m = iframeUrl.match(/[?&]url=([^&\s"'<>]+)/i);
+  if(!m) return '';
+  let decoded = m[1];
+
+  // 1) 处理 %uXXXX（老式 JS escape 编码，如 %u7B2C = 第）
+  decoded = decoded.replace(/%u([0-9a-fA-F]{4})/g, function(_, hex){
+    return String.fromCharCode(parseInt(hex, 16));
+  });
+
+  // 2) 标准 URL 解码，最多 2 次
+  for(let i = 0; i < 2; i++){
+    try {
+      const d = decodeURIComponent(decoded);
+      if(d === decoded) break;
+      decoded = d;
+    } catch(e){ break; }
+  }
+
+  // 3) 中文路径规范化（转成 %xx）
+  try {
+    decoded = new URL(decoded).href;
+  } catch(e){
+    decoded = decoded.replace(/[\u4e00-\u9fa5\s]/g, c => encodeURIComponent(c));
+  }
+
+  return /^https?:\/\//i.test(decoded) && MEDIA_RE.test(decoded) ? decoded : '';
+}
+
 function destroyHls(){
   const video = document.getElementById('playerVideo');
   if(video){
@@ -1234,6 +1269,22 @@ async function openDetail(item){
         b.disabled = false;
 
         if(!detailOpen) return;
+
+        // ★ 新增：针对 %uXXXX + URL 编码那种明文 m3u8，优先自己解出来播放
+        if(iframeUrl){
+          const m3u8FromIframe = extractM3U8FromIframeUrl(iframeUrl);
+          if(m3u8FromIframe){
+            console.log('[从 iframe url= 解出 m3u8]', m3u8FromIframe);
+            if(playerBox) playerBox.style.display = 'block';
+            if(paddr){
+              paddr.className = 'paddr ok';
+              paddr.textContent = m3u8FromIframe;
+            }
+            startHlsPlayer(m3u8FromIframe);
+            $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+            return;
+          }
+        }
 
         if(iframeUrl){
           if(playerBox) playerBox.style.display = 'block';

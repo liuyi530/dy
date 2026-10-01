@@ -18,6 +18,7 @@
     <div class="source-selector">
       <button class="src-btn active" data-source="cilixiong">磁力熊</button>
       <button class="src-btn" data-source="ffzy">非凡资源</button>
+      <button class="src-btn" data-source="netflix">奈飞</button>
       <button class="src-btn" data-source="jiexi">视频解析</button>
     </div>
   </div>
@@ -73,6 +74,8 @@ let pageState = {
   totalCount: 0,
   currentKeyword: ''
 };
+
+const MEDIA_RE = /\.(m3u8|mp4|flv)(\?|#|$)/i;
 
 const SOURCES = {
   /* ------------------------- 磁力熊 ------------------------- */
@@ -325,6 +328,144 @@ const SOURCES = {
 
       return { cover, magnets: [], playPageUrl: '', playList };
     }
+  },
+
+  /* -------------------------- 奈飞 -------------------------- */
+  netflix: {
+    name: '奈飞',
+    base: 'https://www.netflixgc.com',
+
+    getSearchUrl: function(kw){
+      return this.base + '/vodsearch/-------------.html?wd=' + encodeURIComponent(kw);
+    },
+    getSearchUrlGet: function(kw){
+      return this.base + '/vodsearch/-------------.html?wd=' + encodeURIComponent(kw);
+    },
+    getSearchOptions: function(kw){
+      /* 该站搜索是 GET，直接走 GET */
+      return { method: 'GET' };
+    },
+
+    parseList: function(html){
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const list = [];
+      const seen = new Set();
+
+      const pickCover = (scope) => {
+        const img = scope.querySelector ? scope.querySelector('.detail-pic img') || scope.querySelector('img') : null;
+        if(!img) return '';
+        return img.getAttribute('data-src') || img.getAttribute('src') || '';
+      };
+
+      const boxes = doc.querySelectorAll('.public-list-box');
+      if(boxes.length){
+        boxes.forEach(box => {
+          const a = box.querySelector('a[href*="/voddetail/"]');
+          if(!a) return;
+          const href = a.getAttribute('href') || '';
+          if(!href || seen.has(href)) return;
+
+          const titleEl = box.querySelector('.slide-info-title') || box.querySelector('h3');
+          const name = titleEl ? titleEl.textContent.trim() : '';
+          if(!name) return;
+
+          seen.add(href);
+
+          const noteEl = box.querySelector('.public-list-prb') ||
+                         box.querySelector('.slide-info-remarks');
+
+          list.push({
+            name,
+            year: noteEl ? noteEl.textContent.trim() : '',
+            rank: '',
+            cover: abs(pickCover(box), this.base),
+            href: abs(href, this.base)
+          });
+        });
+      }
+
+      /* 兜底：直接扫详情页链接 */
+      if(list.length === 0){
+        doc.querySelectorAll('a[href*="/voddetail/"]').forEach(a => {
+          const href = a.getAttribute('href') || '';
+          if(!href || seen.has(href)) return;
+
+          const scope = a.closest('.public-list-box') ||
+                        a.closest('li') ||
+                        a.parentElement || a;
+
+          const titleEl = scope.querySelector
+            ? (scope.querySelector('.slide-info-title') || scope.querySelector('h3'))
+            : null;
+          const name = titleEl ? titleEl.textContent.trim() : a.textContent.trim();
+          if(!name || name.length > 60) return;
+
+          seen.add(href);
+
+          list.push({
+            name,
+            year: '',
+            rank: '',
+            cover: abs(pickCover(scope), this.base),
+            href: abs(href, this.base)
+          });
+        });
+      }
+
+      return {
+        list,
+        prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
+        currentPage:1, totalPages:1, totalCount: list.length
+      };
+    },
+
+    parseDetail: function(html){
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+
+      /* 封面 */
+      let cover = '';
+      const imgEl = doc.querySelector('.detail-pic img') || doc.querySelector('.vodImg img');
+      if(imgEl) cover = abs(imgEl.getAttribute('data-src') || imgEl.getAttribute('src'), this.base);
+
+      /* 线路标签 + 线路剧集容器 */
+      const tabs = doc.querySelectorAll('.vod-playerUrl');
+      const boxes = doc.querySelectorAll('.anthology-list-box');
+
+      const playList = [];
+      const seen = new Set();
+
+      const total = Math.max(tabs.length, boxes.length);
+
+      for(let i = 0; i < total; i++){
+        let lineName = '';
+        if(tabs[i]){
+          const clone = tabs[i].cloneNode(true);
+          clone.querySelectorAll('.badge, i').forEach(el => el.remove());
+          lineName = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+        }
+        if(!lineName) lineName = '线路' + (i + 1);
+
+        const box = boxes[i];
+        if(!box) continue;
+
+        box.querySelectorAll('a[href*="/vodplay/"]').forEach(a => {
+          const href = a.getAttribute('href') || '';
+          if(!href || seen.has(href)) return;
+          seen.add(href);
+
+          const sp = a.querySelector('span');
+          let epName = sp ? sp.textContent.trim() : (a.textContent || '').trim();
+          if(!epName) epName = '正片';
+
+          playList.push({
+            title: lineName + ' · ' + epName,
+            url: abs(href, this.base)
+          });
+        });
+      }
+
+      return { cover, magnets: [], playPageUrl: '', playList };
+    }
   }
 };
 
@@ -518,7 +659,7 @@ async function fetchViaRelay(url, opts, timeout){
   options.headers = headers;
 
   const r = await fetchWithTimeout(target, options, timeout);
-  
+
   const setCookie = r.headers.get('x-set-cookie');
   if (setCookie) {
     const m = setCookie.match(/cdndefend_js_cookie=[^;]+/);
@@ -861,11 +1002,14 @@ async function openDetail(item){
     if(detailData.playList && detailData.playList.length){
       body += '<div class="section-title">在线播放列表（' + detailData.playList.length + '）</div>';
       body += detailData.playList.map(function(p, i){
+        const isDirect = MEDIA_RE.test(p.url);
         return '<div class="episode-item" style="animation-delay:' + (i * 30) + 'ms">' +
           '<div class="fname" title="' + escapeAttr(p.title) + '">' + escapeHtml(p.title) + '</div>' +
           '<div class="row">' +
             '<div class="btns">' +
-              '<button class="btn btn-copy" data-url="' + escapeAttr(p.url) + '">复制 m3u8</button>' +
+              '<button class="btn btn-copy" data-url="' + escapeAttr(p.url) + '">' +
+                (isDirect ? '复制 m3u8' : '复制链接') +
+              '</button>' +
               '<button class="btn btn-open btn-play-ep" data-url="' + escapeAttr(p.url) + '">立即播放</button>' +
             '</div>' +
           '</div>' +
@@ -922,13 +1066,47 @@ async function openDetail(item){
       };
     });
 
+    /* 播放：如果 URL 不是媒体直链（例如奈飞的 /vodplay/xxx-1-1.html），
+       先请求该页面并从 iframe 里解析出真正的 m3u8，再交给 HLS 播放 */
     $$('#dBody .btn-play-ep').forEach(function(b){
-      b.onclick = function(){
-        const url = b.dataset.url;
-        $('#playerBox').style.display = 'block';
-        $('#paddr').textContent = url;
-        startHlsPlayer(url);
+      b.onclick = async function(){
+        const rawUrl = b.dataset.url;
+        if(!rawUrl) return;
+
+        const playerBox = $('#playerBox');
+        const paddr = $('#paddr');
+
+        if(playerBox) playerBox.style.display = 'block';
+        if(paddr){
+          paddr.className = 'paddr probing';
+          paddr.textContent = '正在解析播放地址…';
+        }
         $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+
+        let playUrl = rawUrl;
+
+        if(!MEDIA_RE.test(rawUrl)){
+          const old = b.textContent;
+          b.textContent = '解析中…';
+          b.disabled = true;
+          try{
+            const page = await requestUrl(rawUrl);
+            const found = extractVideoUrl(page);
+            if(found) playUrl = found;
+          }catch(e){
+            console.warn('播放地址解析失败:', e);
+          }
+          b.textContent = old;
+          b.disabled = false;
+        }
+
+        if(!detailOpen) return;
+
+        if(paddr){
+          paddr.className = 'paddr ok';
+          paddr.textContent = playUrl;
+        }
+        startHlsPlayer(playUrl);
       };
     });
 

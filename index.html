@@ -342,7 +342,6 @@ const SOURCES = {
       return this.base + '/vodsearch/-------------.html?wd=' + encodeURIComponent(kw);
     },
     getSearchOptions: function(kw){
-      /* 该站搜索是 GET，直接走 GET */
       return { method: 'GET' };
     },
 
@@ -384,7 +383,6 @@ const SOURCES = {
         });
       }
 
-      /* 兜底：直接扫详情页链接 */
       if(list.length === 0){
         doc.querySelectorAll('a[href*="/voddetail/"]').forEach(a => {
           const href = a.getAttribute('href') || '';
@@ -422,12 +420,10 @@ const SOURCES = {
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
 
-      /* 封面 */
       let cover = '';
       const imgEl = doc.querySelector('.detail-pic img') || doc.querySelector('.vodImg img');
       if(imgEl) cover = abs(imgEl.getAttribute('data-src') || imgEl.getAttribute('src'), this.base);
 
-      /* 线路标签 + 线路剧集容器 */
       const tabs = doc.querySelectorAll('.vod-playerUrl');
       const boxes = doc.querySelectorAll('.anthology-list-box');
 
@@ -548,9 +544,24 @@ function escapeAttr(s){
   return escapeHtml(s).replace(/`/g,'&#96;');
 }
 
+/* ---------- 核心：从播放页 HTML 中提取真实 m3u8 ---------- */
 function extractVideoUrl(text){
   if(!text) return '';
   const s = String(text).replace(/\\\//g, '/').replace(/&amp;/g, '&');
+
+  // 1. 优先从 iframe 的 src 中提取 url= 参数（奈飞播放页典型结构）
+  const iframeMatch = s.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  if(iframeMatch){
+    const src = iframeMatch[1];
+    const urlMatch = src.match(/[?&]url=([^&"']+)/i);
+    if(urlMatch){
+      let u = decodeURIComponent(urlMatch[1]);
+      if(u.includes('.m3u8') || u.includes('.mp4')) return u;
+    }
+    if(src.includes('.m3u8') || src.includes('.mp4')) return src;
+  }
+
+  // 2. 兜底：直接正则搜索媒体地址
   const patterns = [
     /https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i,
     /https?:\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
@@ -1066,8 +1077,7 @@ async function openDetail(item){
       };
     });
 
-    /* 播放：如果 URL 不是媒体直链（例如奈飞的 /vodplay/xxx-1-1.html），
-       先请求该页面并从 iframe 里解析出真正的 m3u8，再交给 HLS 播放 */
+    /* ---------- 播放按钮：自动解析播放页 → m3u8 ---------- */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
         const rawUrl = b.dataset.url;
@@ -1085,6 +1095,7 @@ async function openDetail(item){
 
         let playUrl = rawUrl;
 
+        // 如果当前链接不是 m3u8/mp4 直链，说明是播放页，需要先请求页面提取真实地址
         if(!MEDIA_RE.test(rawUrl)){
           const old = b.textContent;
           b.textContent = '解析中…';
@@ -1092,9 +1103,14 @@ async function openDetail(item){
           try{
             const page = await requestUrl(rawUrl);
             const found = extractVideoUrl(page);
-            if(found) playUrl = found;
+            if(found){
+              playUrl = found;
+            }else{
+              toast('未从播放页解析到 m3u8，使用原始链接');
+            }
           }catch(e){
             console.warn('播放地址解析失败:', e);
+            toast('播放页请求失败：' + (e.message || '网络错误'));
           }
           b.textContent = old;
           b.disabled = false;

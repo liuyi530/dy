@@ -571,7 +571,6 @@ function extractVideoUrl(text){
   };
 
   // 3. 关键：直接从整个 HTML 文本里搜索 url= 后面的媒体地址
-  //    示例：...&url=https://p.bvvvvvvvvv1f.com/video/xxx/HD中字版/index.m3u8
   const urlParamRe = /[?&]url=(https?:\/\/[^\s"'<>&]+?\.(?:m3u8|mp4|flv)[^\s"'<>&]*)/gi;
   let m;
   while((m = urlParamRe.exec(s)) !== null){
@@ -609,6 +608,20 @@ function extractVideoUrl(text){
 }
 
 /* ============================================================
+   提取 iframe 的 src（用于加密 token 站点，如奈飞的 ec.php）
+   ============================================================ */
+function extractIframeSrc(html){
+  if(!html) return '';
+  const s = String(html).replace(/&amp;/g, '&');
+  const m = s.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
+  if(!m) return '';
+  let src = m[1].replace(/&quot;/g, '"').trim();
+  if(src.startsWith('//')) src = 'https:' + src;
+  if(!/^https?:/i.test(src)) return '';
+  return src;
+}
+
+/* ============================================================
    HLS 播放
    ============================================================ */
 function destroyHls(){
@@ -616,6 +629,10 @@ function destroyHls(){
   if(video){
     try{ video.pause(); }catch(e){}
     try{ video.removeAttribute('src'); video.load(); }catch(e){}
+  }
+  const iframe = document.getElementById('playerIframe');
+  if(iframe){
+    try{ iframe.src = 'about:blank'; iframe.style.display = 'none'; }catch(e){}
   }
   if(hlsInstance){
     try{ hlsInstance.destroy(); }catch(e){}
@@ -626,10 +643,13 @@ function destroyHls(){
 function startHlsPlayer(videoUrl){
   const container = $('#playerContainer');
   const video = $('#playerVideo');
+  const iframe = $('#playerIframe');
   if(!container || !video || !videoUrl) return;
 
   destroyHls();
   container.style.display = 'block';
+  if(iframe){ iframe.style.display = 'none'; }
+  if(video) video.style.display = 'block';
 
   // 统一通过代理加载：代理层会重写 m3u8 里的分片地址
   const playSrc = CONFIG.relay + encodeURIComponent(videoUrl);
@@ -676,6 +696,34 @@ function startHlsPlayer(videoUrl){
   else{
     toast('当前浏览器不支持 HLS 播放');
   }
+}
+
+/* ============================================================
+   用 iframe 播放（用于加密 token 的站点，如奈飞的 ec.php）
+   让 iframe 自己执行解密逻辑，我们只负责把地址塞进去
+   ============================================================ */
+function playWithIframe(iframeSrc){
+  if(!iframeSrc) return;
+
+  const container = $('#playerContainer');
+  const video = $('#playerVideo');
+  const iframe = $('#playerIframe');
+  if(!container || !iframe) return;
+
+  // 先销毁 HLS 状态
+  if(hlsInstance){
+    try{ hlsInstance.destroy(); }catch(e){}
+    hlsInstance = null;
+  }
+  if(video){
+    try{ video.pause(); }catch(e){}
+    try{ video.removeAttribute('src'); video.load(); }catch(e){}
+    video.style.display = 'none';
+  }
+
+  container.style.display = 'block';
+  iframe.style.display = 'block';
+  iframe.src = iframeSrc;
 }
 
 /* ============================================================
@@ -1019,6 +1067,7 @@ async function openDetail(item){
         '<div class="paddr ok" id="paddr">已载入播放节点</div>' +
         '<div class="player-container" id="playerContainer">' +
           '<video id="playerVideo" controls playsinline webkit-playsinline></video>' +
+          '<iframe id="playerIframe" allowfullscreen allow="autoplay; encrypted-media; fullscreen" scrolling="no" style="display:none;width:100%;height:100%;border:none;"></iframe>' +
         '</div>' +
       '</div>';
 
@@ -1102,7 +1151,10 @@ async function openDetail(item){
     });
 
     /* =========================================================
-       播放按钮：先请求播放页 → 提取 url= 后面的 m3u8 → 播放
+       播放按钮：三段式
+       ① 直链 → HLS 播放
+       ② 播放页解析到 m3u8 → HLS 播放
+       ③ 解析不到 m3u8 但有 iframe（加密 token 站点） → iframe 兜底
        ========================================================= */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
@@ -1124,10 +1176,7 @@ async function openDetail(item){
           return;
         }
 
-        // ---------- 情况2：是播放页（如 /vodplay/xxx-1-1.html） ----------
-        // 1) 先请求该播放页 HTML
-        // 2) 从 HTML 里搜 url= 后面的真实 m3u8
-        // 3) 拿到 m3u8 才调 HLS 播放；拿不到就提示不播放
+        // ---------- 情况2：播放页 → 解析 m3u8 / iframe ----------
         const old = b.textContent;
         b.textContent = '解析中…';
         b.disabled = true;
@@ -1138,11 +1187,14 @@ async function openDetail(item){
         if(playerBox) playerBox.style.display = 'none';
 
         let playUrl = '';
+        let iframeUrl = '';
         try{
           const page = await requestUrl(rawUrl);
           playUrl = extractVideoUrl(page);
+          iframeUrl = extractIframeSrc(page);
           console.log('[解析播放页]', rawUrl);
           console.log('[提取到 m3u8]', playUrl);
+          console.log('[提取到 iframe]', iframeUrl);
         }catch(e){
           console.warn('播放页请求失败:', e);
           toast('播放页请求失败：' + (e.message || '网络错误'));
@@ -1153,24 +1205,37 @@ async function openDetail(item){
 
         if(!detailOpen) return;
 
-        // 未解析到 m3u8：不调用播放器
-        if(!playUrl){
+        // 优先：拿到 m3u8 → 用 HLS 播放
+        if(playUrl){
+          if(playerBox) playerBox.style.display = 'block';
           if(paddr){
-            paddr.className = 'paddr fail';
-            paddr.textContent = '未从播放页解析到 m3u8 地址';
+            paddr.className = 'paddr ok';
+            paddr.textContent = playUrl;
           }
-          toast('未解析到 m3u8，无法播放');
+          startHlsPlayer(playUrl);
+          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
           return;
         }
 
-        // 解析成功：显示播放器并把 m3u8 交给 HLS
-        if(playerBox) playerBox.style.display = 'block';
-        if(paddr){
-          paddr.className = 'paddr ok';
-          paddr.textContent = playUrl;
+        // 兜底：没 m3u8 但有 iframe → 用 iframe 播放（加密 token 站点）
+        if(iframeUrl){
+          if(playerBox) playerBox.style.display = 'block';
+          if(paddr){
+            paddr.className = 'paddr ok';
+            paddr.textContent = iframeUrl;
+          }
+          playWithIframe(iframeUrl);
+          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+          toast('已切换 iframe 模式播放');
+          return;
         }
-        startHlsPlayer(playUrl);
-        $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+
+        // 都没拿到
+        if(paddr){
+          paddr.className = 'paddr fail';
+          paddr.textContent = '未解析到播放地址';
+        }
+        toast('未解析到播放地址，无法播放');
       };
     });
 

@@ -1,5 +1,4 @@
 const ALLOW_ORIGIN = '*';
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 export async function onRequest(context) {
   const { request } = context;
@@ -19,11 +18,9 @@ export async function onRequest(context) {
   }
 
   let targetOrigin = '';
-  let targetHost = '';
   try {
     const t = new URL(target);
     targetOrigin = t.origin;
-    targetHost = t.host;
   } catch {
     return new Response(JSON.stringify({ error: '无效的 url 参数' }), {
       status: 400,
@@ -31,12 +28,22 @@ export async function onRequest(context) {
     });
   }
 
+  // 模拟标准现代浏览器 Header，避免被毒舌/Cloudflare 防护墙阻断
   const reqHeaders = new Headers({
-    'User-Agent': UA,
-    'Referer': targetOrigin ? targetOrigin + '/' : target,
-    'Origin': targetOrigin,
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'zh-CN,zh;q=0.9',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'cross-site',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1',
+    'Referer': targetOrigin + '/'
   });
 
   const customCookie = request.headers.get('x-target-cookie') || '';
@@ -69,13 +76,9 @@ export async function onRequest(context) {
       headers.set('x-set-cookie', setCookieHeader);
     }
 
-    headers.delete('x-frame-options');
-    headers.delete('content-security-policy');
-    headers.delete('content-security-policy-report-only');
-
     return new Response(body, { status: resp.status, headers });
   } catch (e) {
-    return new Response(JSON.stringify({ error: '转发失败: ' + e.message }), {
+    return new Response(JSON.stringify({ error: '代理转发失败: ' + e.message }), {
       status: 502,
       headers: { 'Content-Type': 'application/json', ...cors() }
     });

@@ -37,19 +37,27 @@ export async function onRequest(context) {
 
   const isIframeReq = u.searchParams.get('iframe') === '1';
 
+  // 前端可指定 Referer（关键修复）
+  const customReferer = request.headers.get('x-target-referer') || '';
+
   const reqHeaders = new Headers({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
   });
 
   if (isMedia) {
+    // ★ 媒体资源：不再硬塞 Referer/Origin，避免被 CDN 判定为盗链
     reqHeaders.set('Accept', '*/*');
-    reqHeaders.set('Origin', targetOrigin);
-    reqHeaders.set('Referer', targetOrigin + '/');
     reqHeaders.set('Sec-Fetch-Dest', 'empty');
     reqHeaders.set('Sec-Fetch-Mode', 'cors');
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
+    // 只有前端明确指定时才带 Referer
+    if (customReferer) {
+      reqHeaders.set('Referer', customReferer);
+      try { reqHeaders.set('Origin', new URL(customReferer).origin); } catch(e){}
+    }
   } else {
+    // 页面资源
     reqHeaders.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
     reqHeaders.set('Cache-Control', 'no-cache');
     reqHeaders.set('Pragma', 'no-cache');
@@ -61,7 +69,7 @@ export async function onRequest(context) {
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
     reqHeaders.set('Sec-Fetch-User', '?1');
     reqHeaders.set('Upgrade-Insecure-Requests', '1');
-    reqHeaders.set('Referer', targetOrigin + '/');
+    reqHeaders.set('Referer', customReferer || (targetOrigin + '/'));
   }
 
   const customCookie = request.headers.get('x-target-cookie') || '';
@@ -87,7 +95,7 @@ export async function onRequest(context) {
 
     const headers = new Headers(cors());
 
-    // ---------- m3u8：重写内容，让分片也走代理 ----------
+    // ---------- m3u8：重写内容 ----------
     const respIsM3U8 = isM3U8 || /mpegurl/i.test(ct);
 
     if (respIsM3U8) {
@@ -125,10 +133,7 @@ export async function onRequest(context) {
     const body = await resp.arrayBuffer();
     if (ct) headers.set('Content-Type', ct);
 
-    // iframe 请求：去掉屏蔽头，允许被跨域嵌入
     if (isIframeReq) {
-      // 注意：我们本来就没复制 resp 的 X-Frame-Options / CSP，
-      // 这里再确保一下不会因为 Response 默认头影响
       headers.set('X-Frame-Options', 'ALLOWALL');
       headers.set('Content-Security-Policy', "frame-ancestors *");
       headers.set('Access-Control-Allow-Origin', ALLOW_ORIGIN);

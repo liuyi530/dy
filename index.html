@@ -594,16 +594,12 @@ function extractVideoUrl(text){
 
 /* ============================================================
    ★ 核心：从播放页 HTML 里提取播放器 iframe
-   - 优先 ec.php（排除 union.maccms.la / prestrain 广告 iframe）
-   - 其次 netflixgc 域名
-   - 再次从 player_aaaa 变量拼 ec.php（★ 用解码后的 NBY- 值）
    ============================================================ */
 function extractPlayerIframe(html){
   if(!html) return '';
 
   const s = String(html).replace(/&amp;/g, '&');
 
-  // 1. 扫描所有 iframe
   const re = /<iframe\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
   let m;
   const candidates = [];
@@ -613,31 +609,25 @@ function extractPlayerIframe(html){
     if(/^https?:/i.test(src)) candidates.push(src);
   }
 
-  // 1.1 优先 ec.php（奈飞播放器）
   for(let i = 0; i < candidates.length; i++){
     if(/ec\.php/i.test(candidates[i])) return candidates[i];
   }
-  // 1.2 其次 netflixgc 域名
   for(let i = 0; i < candidates.length; i++){
     if(/netflixgc/i.test(candidates[i])) return candidates[i];
   }
-  // 1.3 排除广告 iframe 后返回第一个
   for(let i = 0; i < candidates.length; i++){
     if(/union\.maccms|prestrain|ads?|advert|doubleclick|googlesyndication/i.test(candidates[i])) continue;
     return candidates[i];
   }
 
-  // 2. 从 player_aaaa 变量拼 ec.php
   const pm = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/);
   if(pm){
     try {
       const obj = JSON.parse(pm[1]);
       if(obj && obj.url){
-        // ★ 关键改动：先 base64 解码，再 URL 解码，用解码后的值
         let decoded = obj.url;
         try { decoded = atob(obj.url); } catch(e){}
         try { decoded = decodeURIComponent(decoded); } catch(e){}
-        // 如果解码后还是空的，退回原值
         if(!decoded) decoded = obj.url;
         console.log('[player_aaaa 原始]', obj.url.slice(0, 60) + '...');
         console.log('[player_aaaa 解码]', decoded.slice(0, 60) + '...');
@@ -650,7 +640,10 @@ function extractPlayerIframe(html){
 }
 
 /* ============================================================
-   HLS 播放（仅用于直链情况，如磁力熊/非凡资源的 m3u8）
+   HLS 播放（磁力熊/非凡资源 走这条）
+   ★ 关键修复：
+     1) xhrSetup 给每个 /proxy?url= 请求带 x-target-referer
+     2) 代理失败自动直连兜底
    ============================================================ */
 function destroyHls(){
   const video = document.getElementById('playerVideo');
@@ -679,56 +672,77 @@ function startHlsPlayer(videoUrl){
   if(iframe){ iframe.style.display = 'none'; }
   if(video) video.style.display = 'block';
 
-  const playSrc = CONFIG.relay + encodeURIComponent(videoUrl);
+  // ★ 当前数据源 base 作为 Referer（规避 CDN 盗链）
+  const srcBase = (SOURCES[currentSource] && SOURCES[currentSource].base) || '';
+  const referer = srcBase ? (srcBase.replace(/\/$/, '') + '/') : '';
 
-  if(typeof Hls !== 'undefined' && Hls.isSupported()){
-    hlsInstance = new Hls({
-      enableWorker: true,
-      lowLatencyMode: true,
-      manifestLoadingTimeOut: 20000,
-      manifestLoadingMaxRetry: 3,
-      fragLoadingTimeOut: 20000,
-      fragLoadingMaxRetry: 3,
-    });
+  const proxiedSrc = CONFIG.relay + encodeURIComponent(videoUrl);
+  const directSrc = videoUrl;
 
-    hlsInstance.loadSource(playSrc);
-    hlsInstance.attachMedia(video);
-
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, function(){
-      video.play().catch(function(e){ console.log('自动播放被拦截:', e); });
-    });
-
-    hlsInstance.on(Hls.Events.ERROR, function(event, data){
-      if(!data || !data.fatal) return;
-      switch(data.type){
-        case Hls.ErrorTypes.NETWORK_ERROR:
-          toast('视频加载失败：网络错误');
-          break;
-        case Hls.ErrorTypes.MEDIA_ERROR:
-          try{ hlsInstance.recoverMediaError(); }catch(e){ toast('视频解码失败'); }
-          break;
-        default:
-          destroyHls();
-          toast('播放器遇到致命错误');
-          break;
-      }
-    });
+  if(typeof Hls === 'undefined' || !Hls.isSupported()){
+    if(video.canPlayType('application/vnd.apple.mpegurl')){
+      video.src = proxiedSrc;
+      video.addEventListener('loadedmetadata', function(){
+        video.play().catch(function(){});
+      }, { once:true });
+    } else {
+      toast('当前浏览器不支持 HLS 播放');
+    }
+    return;
   }
-  else if(video.canPlayType('application/vnd.apple.mpegurl')){
-    video.src = playSrc;
-    video.addEventListener('loadedmetadata', function(){
-      video.play().catch(function(){});
-    }, { once:true });
-  }
-  else{
-    toast('当前浏览器不支持 HLS 播放');
-  }
+
+  hlsInstance = new Hls({
+    enableWorker: true,
+    lowLatencyMode: true,
+    manifestLoadingTimeOut: 20000,
+    manifestLoadingMaxRetry: 2,
+    fragLoadingTimeOut: 20000,
+    fragLoadingMaxRetry: 2,
+    xhrSetup: function(xhr, url){
+      try {
+        if(referer && url && url.indexOf('/proxy?url=') === 0){
+          xhr.setRequestHeader('x-target-referer', referer);
+        }
+      } catch(e){}
+    }
+  });
+
+  let triedDirect = false;
+
+  hlsInstance.on(Hls.Events.MANIFEST_PARSED, function(){
+    video.play().catch(function(e){ console.log('自动播放被拦截:', e); });
+  });
+
+  hlsInstance.on(Hls.Events.ERROR, function(event, data){
+    if(!data || !data.fatal) return;
+
+    // ★ 代理失败 → 直连兜底一次
+    if(!triedDirect){
+      triedDirect = true;
+      console.warn('代理播放失败，尝试直连：', directSrc);
+      try { hlsInstance.loadSource(directSrc); return; } catch(e){}
+    }
+
+    switch(data.type){
+      case Hls.ErrorTypes.NETWORK_ERROR:
+        toast('视频加载失败：网络错误');
+        break;
+      case Hls.ErrorTypes.MEDIA_ERROR:
+        try{ hlsInstance.recoverMediaError(); }catch(e){ toast('视频解码失败'); }
+        break;
+      default:
+        destroyHls();
+        toast('播放器遇到致命错误');
+        break;
+    }
+  });
+
+  hlsInstance.loadSource(proxiedSrc);
+  hlsInstance.attachMedia(video);
 }
 
 /* ============================================================
    ★ iframe 播放（奈飞走这条路）
-   - 直连 ec.php（不走代理），让 ec.php 自己执行解密逻辑
-   - 用 referrerpolicy="no-referrer" 避免被 Referer 拦截
    ============================================================ */
 function playWithIframe(iframeSrc){
   if(!iframeSrc) return;
@@ -1178,11 +1192,7 @@ async function openDetail(item){
     });
 
     /* =========================================================
-       播放按钮：
-       ① 直链（.m3u8/.mp4/.flv） → HLS 播放
-       ② 播放页 → 提取 iframe（优先 ec.php） → iframe 播放
-       ③ 播放页 → 没有 iframe，但有 m3u8 → HLS 播放（兜底）
-       ④ 全部失败 → 提示
+       播放按钮：四段式
        ========================================================= */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
@@ -1192,7 +1202,6 @@ async function openDetail(item){
         const playerBox = $('#playerBox');
         const paddr = $('#paddr');
 
-        // ① 直链
         if(MEDIA_RE.test(rawUrl)){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
@@ -1204,7 +1213,6 @@ async function openDetail(item){
           return;
         }
 
-        // 请求播放页
         const old = b.textContent;
         b.textContent = '解析中…';
         b.disabled = true;
@@ -1219,9 +1227,7 @@ async function openDetail(item){
         let playUrl = '';
         try{
           page = await requestUrl(rawUrl);
-          // 优先提取 iframe（奈飞走这条）
           iframeUrl = extractPlayerIframe(page);
-          // 兜底尝试 m3u8
           if(!iframeUrl) playUrl = extractVideoUrl(page);
           console.log('[播放页]', rawUrl);
           console.log('[iframe]', iframeUrl);
@@ -1236,7 +1242,6 @@ async function openDetail(item){
 
         if(!detailOpen) return;
 
-        // ② iframe 播放（奈飞走这条）
         if(iframeUrl){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
@@ -1249,7 +1254,6 @@ async function openDetail(item){
           return;
         }
 
-        // ③ m3u8 兜底（非奈飞）
         if(playUrl){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
@@ -1261,7 +1265,6 @@ async function openDetail(item){
           return;
         }
 
-        // ④ 全部失败
         if(paddr){
           paddr.className = 'paddr fail';
           paddr.textContent = '未解析到播放地址';
@@ -1340,15 +1343,12 @@ function switchSource(src){
 
   currentSource = src;
 
-  // 更新菜单项的 active 状态
   $$('.src-item').forEach(function(b){
     b.classList.toggle('active', b.dataset.source === src);
   });
 
-  // 更新按钮上显示的名字
   $('#srcName').textContent = SOURCES[src].name;
 
-  // 重置分页状态
   pageState.prevUrl = '';
   pageState.nextUrl = '';
   pageState.hasPrev = false;
@@ -1374,7 +1374,6 @@ function switchSource(src){
   }
 }
 
-/* 菜单项点击 */
 $$('.src-item').forEach(function(btn){
   btn.addEventListener('click', function(e){
     e.stopPropagation();
@@ -1383,13 +1382,11 @@ $$('.src-item').forEach(function(btn){
   });
 });
 
-/* 按钮点击：展开/收起 */
 $('#srcToggle').addEventListener('click', function(e){
   e.stopPropagation();
   $('#srcDropdown').classList.toggle('open');
 });
 
-/* 点击外部：收起 */
 document.addEventListener('click', function(e){
   const dd = $('#srcDropdown');
   if(dd && !dd.contains(e.target)) dd.classList.remove('open');

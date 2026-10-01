@@ -69,6 +69,7 @@ let currentSource = 'cilixiong';
 let hlsInstance = null;
 let detailOpen = false;
 let currentDetailItem = null;
+let searchToken = 0;   // ★ 用于丢弃过期搜索请求
 
 let pageState = {
   prevUrl: '',
@@ -550,9 +551,6 @@ function escapeAttr(s){
   return escapeHtml(s).replace(/`/g,'&#96;');
 }
 
-/* ============================================================
-   从播放页 HTML 中提取真正的 m3u8（仅用于非奈飞的直链场景）
-   ============================================================ */
 function extractVideoUrl(text){
   if(!text) return '';
 
@@ -592,9 +590,6 @@ function extractVideoUrl(text){
   return '';
 }
 
-/* ============================================================
-   ★ 核心：从播放页 HTML 里提取播放器 iframe
-   ============================================================ */
 function extractPlayerIframe(html){
   if(!html) return '';
 
@@ -639,12 +634,6 @@ function extractPlayerIframe(html){
   return '';
 }
 
-/* ============================================================
-   HLS 播放（磁力熊/非凡资源 走这条）
-   ★ 关键修复：
-     1) xhrSetup 给每个 /proxy?url= 请求带 x-target-referer
-     2) 代理失败自动直连兜底
-   ============================================================ */
 function destroyHls(){
   const video = document.getElementById('playerVideo');
   if(video){
@@ -672,7 +661,6 @@ function startHlsPlayer(videoUrl){
   if(iframe){ iframe.style.display = 'none'; }
   if(video) video.style.display = 'block';
 
-  // ★ 当前数据源 base 作为 Referer（规避 CDN 盗链）
   const srcBase = (SOURCES[currentSource] && SOURCES[currentSource].base) || '';
   const referer = srcBase ? (srcBase.replace(/\/$/, '') + '/') : '';
 
@@ -716,7 +704,6 @@ function startHlsPlayer(videoUrl){
   hlsInstance.on(Hls.Events.ERROR, function(event, data){
     if(!data || !data.fatal) return;
 
-    // ★ 代理失败 → 直连兜底一次
     if(!triedDirect){
       triedDirect = true;
       console.warn('代理播放失败，尝试直连：', directSrc);
@@ -741,9 +728,6 @@ function startHlsPlayer(videoUrl){
   hlsInstance.attachMedia(video);
 }
 
-/* ============================================================
-   ★ iframe 播放（奈飞走这条路）
-   ============================================================ */
 function playWithIframe(iframeSrc){
   if(!iframeSrc) return;
 
@@ -767,9 +751,6 @@ function playWithIframe(iframeSrc){
   iframe.src = iframeSrc;
 }
 
-/* ============================================================
-   网络请求与代理通信
-   ============================================================ */
 let lastReceivedCookie = '';
 
 async function fetchViaRelay(url, opts, timeout){
@@ -796,22 +777,6 @@ async function fetchViaRelay(url, opts, timeout){
     throw new Error('网络请求服务响应异常 (' + r.status + ')');
   }
   return await r.text();
-}
-
-async function requestSearch(keyword) {
-  const src = SOURCES[currentSource];
-  const postOpts = src.getSearchOptions(keyword);
-  let txt = '';
-  try {
-    txt = await fetchViaRelay(src.getSearchUrl(keyword), postOpts);
-  } catch (e) {
-    txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
-  }
-  return txt;
-}
-
-async function requestUrl(url){
-  return await fetchViaRelay(url, {});
 }
 
 /* ============================================================
@@ -1007,6 +972,16 @@ async function doSearch(keyword){
   keyword = (keyword || '').trim();
   if(!keyword){ toast('请输入关键词'); return; }
 
+  // ★ 记录本次搜索的 token 和 source，防止过期请求覆盖界面
+  const myToken = ++searchToken;
+  const mySource = currentSource;
+
+  // 视频解析源不支持搜索
+  if(mySource === 'jiexi'){
+    renderJiexiUI();
+    return;
+  }
+
   pageState.currentKeyword = keyword;
   pageState.prevUrl = '';
   pageState.nextUrl = '';
@@ -1018,8 +993,20 @@ async function doSearch(keyword){
   renderSkeleton();
 
   try{
-    const html = await requestSearch(keyword);
-    const result = SOURCES[currentSource].parseList(html);
+    const src = SOURCES[mySource];
+    const postOpts = src.getSearchOptions(keyword);
+    let txt = '';
+    try {
+      txt = await fetchViaRelay(src.getSearchUrl(keyword), postOpts);
+    } catch (e) {
+      txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
+    }
+
+    // ★ 请求返回后检查是否过期
+    if(myToken !== searchToken) return;
+    if(mySource !== currentSource) return;
+
+    const result = src.parseList(txt);
 
     pageState.prevUrl     = result.prevUrl || '';
     pageState.nextUrl     = result.nextUrl || '';
@@ -1032,6 +1019,8 @@ async function doSearch(keyword){
     renderCards(result.list, keyword);
   }catch(e){
     console.error(e);
+    if(myToken !== searchToken) return;
+    if(mySource !== currentSource) return;
     renderError('请求失败：' + (e.message || '未知错误'), keyword);
   }finally{
     btn.classList.remove('loading');
@@ -1191,9 +1180,6 @@ async function openDetail(item){
       };
     });
 
-    /* =========================================================
-       播放按钮：四段式
-       ========================================================= */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
         const rawUrl = b.dataset.url;
@@ -1337,18 +1323,29 @@ async function probePlayUrl(playPageUrl){
 
 /* ============================================================
    ★ 片源下拉列表：切换 + 展开/收起
+   ★ 修复：jiexi 源特殊处理，不再读 SOURCES['jiexi'].name 报错
    ============================================================ */
 function switchSource(src){
   if(src === currentSource) return;
 
   currentSource = src;
 
+  // ★ 立即作废所有 pending 的搜索请求
+  searchToken++;
+
+  // 更新菜单项 active
   $$('.src-item').forEach(function(b){
     b.classList.toggle('active', b.dataset.source === src);
   });
 
-  $('#srcName').textContent = SOURCES[src].name;
+  // ★ 更新按钮名字（jiexi 特殊处理）
+  if(src === 'jiexi'){
+    $('#srcName').textContent = '视频解析';
+  } else {
+    $('#srcName').textContent = SOURCES[src].name;
+  }
 
+  // 重置分页状态
   pageState.prevUrl = '';
   pageState.nextUrl = '';
   pageState.hasPrev = false;
@@ -1361,13 +1358,13 @@ function switchSource(src){
     $('.searchrow').style.display = 'none';
     toast('已切换：视频解析');
     renderJiexiUI();
-  }else{
+  } else {
     $('.searchrow').style.display = 'flex';
     toast('已切换数据源：' + SOURCES[src].name);
     const kw = $('#kw').value.trim();
     if(kw){
       doSearch(kw);
-    }else{
+    } else {
       $('#content').innerHTML = '';
       $('#stat').style.display = 'none';
     }

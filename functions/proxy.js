@@ -13,6 +13,7 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 export async function onRequest(context) {
   const { request } = context;
 
+  // 预检请求直接返回 CORS
   if (request.method === 'OPTIONS') {
     return new Response(null, { headers: cors() });
   }
@@ -33,7 +34,12 @@ export async function onRequest(context) {
     const t = new URL(target);
     targetOrigin = t.origin;
     targetHost = t.host;
-  } catch {}
+  } catch {
+    return new Response(JSON.stringify({ error: '无效的 url 参数' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json', ...cors() }
+    });
+  }
 
   // ===== 自动获取或刷新 cookie =====
   let autoCookie = '';
@@ -45,16 +51,15 @@ export async function onRequest(context) {
     method: request.method,
     headers: {
       'User-Agent': UA,
-      // 修复点 1：Referer 统一设为目标站首页，避免直接设为 API 地址导致拦截
       'Referer': targetOrigin ? targetOrigin + '/' : target,
       'Origin': targetOrigin,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
       'Accept-Language': 'zh-CN,zh;q=0.9',
     },
-    // 修复点 2：自动跟随重定向，防止源站 302 导致中转报错 502
     redirect: 'follow',
   };
 
+  // 优先读取前端透传的自定义 cookie；若无则使用缓存/自动获取的 cookie
   const manualCookie = request.headers.get('x-target-cookie') || '';
   if (manualCookie) {
     init.headers['Cookie'] = manualCookie;
@@ -62,6 +67,7 @@ export async function onRequest(context) {
     init.headers['Cookie'] = autoCookie;
   }
 
+  // 非 GET/HEAD 请求转发 Request Body
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     init.body = await request.arrayBuffer();
     const ct = request.headers.get('content-type') || 'application/x-www-form-urlencoded';
@@ -78,9 +84,8 @@ export async function onRequest(context) {
     });
   }
 
-  // 目标返回新的 Set-Cookie 时自动解析并缓存
+  // 目标站返回新的 Set-Cookie 时自动解析并更新缓存
   if (COOKIE_HOSTS[targetHost]) {
-    // 修复点 3：兼容 Cloudflare 多重 Set-Cookie 提取
     const setCookies = resp.headers.getSetCookie ? resp.headers.getSetCookie() : [resp.headers.get('set-cookie') || ''];
     const name = COOKIE_HOSTS[targetHost].cookieName;
     for (const sc of setCookies) {
@@ -98,6 +103,7 @@ export async function onRequest(context) {
   const ct = resp.headers.get('content-type');
   if (ct) headers.set('Content-Type', ct);
 
+  // 清除源站限制外嵌的安全响应标头
   headers.delete('x-frame-options');
   headers.delete('content-security-policy');
   headers.delete('content-security-policy-report-only');
@@ -105,7 +111,7 @@ export async function onRequest(context) {
   return new Response(body, { status: resp.status, headers });
 }
 
-/* ========== cookie 缓存 ========== */
+/* ========== Cookie 缓存逻辑 ========== */
 
 async function getHostCookie(host) {
   const cache = caches.default;
@@ -174,7 +180,7 @@ function cookieCacheKey(host) {
   return new Request('https://cookie-cache.internal/' + host);
 }
 
-/* ========== CORS ========== */
+/* ========== CORS 配置 ========== */
 
 function cors() {
   return {

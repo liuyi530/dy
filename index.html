@@ -547,21 +547,39 @@ function escapeAttr(s){
 /* ---------- 核心：从播放页 HTML 中提取真实 m3u8 ---------- */
 function extractVideoUrl(text){
   if(!text) return '';
-  const s = String(text).replace(/\\\//g, '/').replace(/&amp;/g, '&');
 
-  // 1. 优先从 iframe 的 src 中提取 url= 参数（奈飞播放页典型结构）
-  const iframeMatch = s.match(/<iframe[^>]+src=["']([^"']+)["']/i);
-  if(iframeMatch){
+  // 先做常见转义处理
+  let s = String(text)
+    .replace(/\\\//g, '/')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+
+  // 1. 遍历所有 iframe，从 src 中提取 url= 参数或直接的媒体地址
+  const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/gi;
+  let iframeMatch;
+  while((iframeMatch = iframeRegex.exec(s)) !== null){
     const src = iframeMatch[1];
-    const urlMatch = src.match(/[?&]url=([^&"']+)/i);
+
+    // 1.1 提取 url= 参数
+    const urlMatch = src.match(/[?&]url=([^&"'\s]+)/i);
     if(urlMatch){
-      let u = decodeURIComponent(urlMatch[1]);
-      if(u.includes('.m3u8') || u.includes('.mp4')) return u;
+      let u = urlMatch[1];
+      try { u = decodeURIComponent(u); } catch(e){}
+      if(MEDIA_RE.test(u)) return u;
     }
-    if(src.includes('.m3u8') || src.includes('.mp4')) return src;
+
+    // 1.2 如果 src 本身是媒体地址
+    if(MEDIA_RE.test(src)) return src;
+
+    // 1.3 从 src 中直接正则匹配媒体地址
+    const m = src.match(/https?:\/\/[^\s"'<>\\]+?\.(m3u8|mp4|flv)[^\s"'<>\\]*/i);
+    if(m) return m[0];
   }
 
-  // 2. 兜底：直接正则搜索媒体地址
+  // 2. 兜底：在整个 HTML 中搜索媒体地址
   const patterns = [
     /https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i,
     /https?:\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
@@ -1077,7 +1095,7 @@ async function openDetail(item){
       };
     });
 
-    /* ---------- 播放按钮：自动解析播放页 → m3u8 ---------- */
+    /* ---------- 播放按钮：先解析 m3u8，成功才调用播放器 ---------- */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
         const rawUrl = b.dataset.url;
@@ -1086,43 +1104,60 @@ async function openDetail(item){
         const playerBox = $('#playerBox');
         const paddr = $('#paddr');
 
-        if(playerBox) playerBox.style.display = 'block';
+        // 情况1：本身就是媒体直链，直接播放
+        if(MEDIA_RE.test(rawUrl)){
+          if(playerBox) playerBox.style.display = 'block';
+          if(paddr){
+            paddr.className = 'paddr ok';
+            paddr.textContent = rawUrl;
+          }
+          startHlsPlayer(rawUrl);
+          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+          return;
+        }
+
+        // 情况2：是播放页，先解析出真实 m3u8
+        const old = b.textContent;
+        b.textContent = '解析中…';
+        b.disabled = true;
         if(paddr){
           paddr.className = 'paddr probing';
           paddr.textContent = '正在解析播放地址…';
         }
-        $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+        if(playerBox) playerBox.style.display = 'none';
 
-        let playUrl = rawUrl;
-
-        // 如果当前链接不是 m3u8/mp4 直链，说明是播放页，需要先请求页面提取真实地址
-        if(!MEDIA_RE.test(rawUrl)){
-          const old = b.textContent;
-          b.textContent = '解析中…';
-          b.disabled = true;
-          try{
-            const page = await requestUrl(rawUrl);
-            const found = extractVideoUrl(page);
-            if(found){
-              playUrl = found;
-            }else{
-              toast('未从播放页解析到 m3u8，使用原始链接');
-            }
-          }catch(e){
-            console.warn('播放地址解析失败:', e);
-            toast('播放页请求失败：' + (e.message || '网络错误'));
-          }
-          b.textContent = old;
-          b.disabled = false;
+        let playUrl = '';
+        try{
+          const page = await requestUrl(rawUrl);
+          playUrl = extractVideoUrl(page);
+        }catch(e){
+          console.warn('播放页请求失败:', e);
+          toast('播放页请求失败：' + (e.message || '网络错误'));
         }
+
+        b.textContent = old;
+        b.disabled = false;
 
         if(!detailOpen) return;
 
+        // 解析失败：不调用播放器，只提示
+        if(!playUrl){
+          if(paddr){
+            paddr.className = 'paddr fail';
+            paddr.textContent = '未解析到 m3u8 地址，无法播放';
+          }
+          toast('未解析到 m3u8，无法播放');
+          return;
+        }
+
+        // 解析成功：显示播放器并播放
+        if(playerBox) playerBox.style.display = 'block';
         if(paddr){
           paddr.className = 'paddr ok';
           paddr.textContent = playUrl;
         }
         startHlsPlayer(playUrl);
+        $('#dBody').scrollTo({ top:0, behavior:'smooth' });
       };
     });
 

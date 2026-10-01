@@ -15,11 +15,17 @@
       <span class="dot"></span>
       影视快捷搜索
     </div>
-    <div class="source-selector">
-      <button class="src-btn active" data-source="cilixiong">磁力熊</button>
-      <button class="src-btn" data-source="ffzy">非凡资源</button>
-      <button class="src-btn" data-source="netflix">奈飞</button>
-      <button class="src-btn" data-source="jiexi">视频解析</button>
+    <div class="src-dropdown" id="srcDropdown">
+      <button class="src-toggle" id="srcToggle">
+        <span class="src-name" id="srcName">磁力熊</span>
+        <span class="src-arrow">▼</span>
+      </button>
+      <div class="src-menu" id="srcMenu">
+        <button class="src-item active" data-source="cilixiong">磁力熊</button>
+        <button class="src-item" data-source="ffzy">非凡资源</button>
+        <button class="src-item" data-source="netflix">奈飞</button>
+        <button class="src-item" data-source="jiexi">视频解析</button>
+      </div>
     </div>
   </div>
   <div class="searchrow">
@@ -585,62 +591,7 @@ function extractVideoUrl(text){
   }
   return '';
 }
-/* ============================================================
-   ★ 核心：从播放页 HTML 里提取播放器 iframe
-   - 优先 ec.php（排除 union.maccms.la / prestrain 广告 iframe）
-   - 其次 netflixgc 域名
-   - 再次从 player_aaaa 变量拼 ec.php（★ 用解码后的 NBY- 值）
-   ============================================================ */
-function extractPlayerIframe(html){
-  if(!html) return '';
 
-  const s = String(html).replace(/&amp;/g, '&');
-
-  // 1. 扫描所有 iframe
-  const re = /<iframe\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
-  let m;
-  const candidates = [];
-  while((m = re.exec(s)) !== null){
-    let src = m[1].replace(/&quot;/g, '"').trim();
-    if(src.startsWith('//')) src = 'https:' + src;
-    if(/^https?:/i.test(src)) candidates.push(src);
-  }
-
-  // 1.1 优先 ec.php（奈飞播放器）
-  for(let i = 0; i < candidates.length; i++){
-    if(/ec\.php/i.test(candidates[i])) return candidates[i];
-  }
-  // 1.2 其次 netflixgc 域名
-  for(let i = 0; i < candidates.length; i++){
-    if(/netflixgc/i.test(candidates[i])) return candidates[i];
-  }
-  // 1.3 排除广告 iframe 后返回第一个
-  for(let i = 0; i < candidates.length; i++){
-    if(/union\.maccms|prestrain|ads?|advert|doubleclick|googlesyndication/i.test(candidates[i])) continue;
-    return candidates[i];
-  }
-
-  // 2. 从 player_aaaa 变量拼 ec.php
-  const pm = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/);
-  if(pm){
-    try {
-      const obj = JSON.parse(pm[1]);
-      if(obj && obj.url){
-        // ★ 关键改动：先 base64 解码，再 URL 解码，用解码后的值
-        let decoded = obj.url;
-        try { decoded = atob(obj.url); } catch(e){}
-        try { decoded = decodeURIComponent(decoded); } catch(e){}
-        // 如果解码后还是空的，退回原值
-        if(!decoded) decoded = obj.url;
-        console.log('[player_aaaa 原始]', obj.url.slice(0, 60) + '...');
-        console.log('[player_aaaa 解码]', decoded.slice(0, 60) + '...');
-        return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
-      }
-    } catch(e){}
-  }
-
-  return '';
-}
 /* ============================================================
    ★ 核心：从播放页 HTML 里提取播放器 iframe
    - 优先 ec.php（排除 union.maccms.la / prestrain 广告 iframe）
@@ -1382,6 +1333,69 @@ async function probePlayUrl(playPageUrl){
 }
 
 /* ============================================================
+   ★ 片源下拉列表：切换 + 展开/收起
+   ============================================================ */
+function switchSource(src){
+  if(src === currentSource) return;
+
+  currentSource = src;
+
+  // 更新菜单项的 active 状态
+  $$('.src-item').forEach(function(b){
+    b.classList.toggle('active', b.dataset.source === src);
+  });
+
+  // 更新按钮上显示的名字
+  $('#srcName').textContent = SOURCES[src].name;
+
+  // 重置分页状态
+  pageState.prevUrl = '';
+  pageState.nextUrl = '';
+  pageState.hasPrev = false;
+  pageState.hasMore = false;
+  pageState.currentPage = 1;
+  pageState.totalPages = 1;
+  pageState.totalCount = 0;
+
+  if(src === 'jiexi'){
+    $('.searchrow').style.display = 'none';
+    toast('已切换：视频解析');
+    renderJiexiUI();
+  }else{
+    $('.searchrow').style.display = 'flex';
+    toast('已切换数据源：' + SOURCES[src].name);
+    const kw = $('#kw').value.trim();
+    if(kw){
+      doSearch(kw);
+    }else{
+      $('#content').innerHTML = '';
+      $('#stat').style.display = 'none';
+    }
+  }
+}
+
+/* 菜单项点击 */
+$$('.src-item').forEach(function(btn){
+  btn.addEventListener('click', function(e){
+    e.stopPropagation();
+    switchSource(btn.dataset.source);
+    $('#srcDropdown').classList.remove('open');
+  });
+});
+
+/* 按钮点击：展开/收起 */
+$('#srcToggle').addEventListener('click', function(e){
+  e.stopPropagation();
+  $('#srcDropdown').classList.toggle('open');
+});
+
+/* 点击外部：收起 */
+document.addEventListener('click', function(e){
+  const dd = $('#srcDropdown');
+  if(dd && !dd.contains(e.target)) dd.classList.remove('open');
+});
+
+/* ============================================================
    事件初始化绑定
    ============================================================ */
 window.addEventListener('popstate', function(){
@@ -1389,40 +1403,6 @@ window.addEventListener('popstate', function(){
     detailOpen = false;
     closeDetailUI();
   }
-});
-
-$$('.src-btn').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    if(btn.classList.contains('active')) return;
-
-    $$('.src-btn').forEach(function(b){ b.classList.remove('active'); });
-    btn.classList.add('active');
-    currentSource = btn.dataset.source;
-
-    pageState.prevUrl = '';
-    pageState.nextUrl = '';
-    pageState.hasPrev = false;
-    pageState.hasMore = false;
-    pageState.currentPage = 1;
-    pageState.totalPages = 1;
-    pageState.totalCount = 0;
-
-    if(currentSource === 'jiexi'){
-      $('.searchrow').style.display = 'none';
-      toast('已切换：视频解析');
-      renderJiexiUI();
-    }else{
-      $('.searchrow').style.display = 'flex';
-      toast('已切换数据源：' + SOURCES[currentSource].name);
-      const kw = $('#kw').value.trim();
-      if(kw){
-        doSearch(kw);
-      }else{
-        $('#content').innerHTML = '';
-        $('#stat').style.display = 'none';
-      }
-    }
-  });
 });
 
 $('#btnSearch').onclick = function(){ doSearch($('#kw').value); };

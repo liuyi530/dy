@@ -26,6 +26,7 @@ body{
   padding-bottom:40px;
 }
 
+/* 顶部导航 */
 .topbar{
   position:sticky;top:0;z-index:50;
   backdrop-filter:blur(14px);
@@ -51,9 +52,6 @@ body{
   animation:pulse 2s infinite;
 }
 
-/* ============================================================
-   ★ 片源下拉列表（替换原 .source-selector / .src-btn）
-   ============================================================ */
 .src-dropdown{
   position:relative;
   margin-left:auto;
@@ -170,6 +168,7 @@ button.loading .btxt{display:none}
 }
 .stat b{color:var(--main);font-weight:700}
 
+/* 网格 */
 .grid{
   display:grid;
   grid-template-columns:repeat(2,1fr);
@@ -332,14 +331,23 @@ button.loading .btxt{display:none}
   line-height:1;
 }
 .close:active{transform:scale(.9)}
-.sheetbody{overflow-y:auto;padding:12px 14px 24px;flex:1;-webkit-overflow-scrolling:touch}
+.sheetbody{overflow-y:auto;padding:12px 14px 24px;flex:1;-webkit-overflow-scrolling:touch; display:flex; flex-direction:column;}
+
+/* 播放器吸顶 */
+.playbox-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg2);
+  padding-bottom: 8px;
+}
 
 .playbox{
   background:linear-gradient(135deg,rgba(59,130,246,.14),rgba(37,99,235,.08));
   border:1px solid rgba(59,130,246,.4);
   border-radius:12px;
   padding:12px;
-  margin-bottom:14px;
+  margin-bottom:0;
   animation:fadeUp .3s ease both;
 }
 .playbox .ptitle{
@@ -372,17 +380,113 @@ button.loading .btxt{display:none}
 .player-container video{width:100%;height:100%;outline:none;background:#000;display:block}
 .player-container iframe{width:100%;height:100%;border:none;display:block;background:#000}
 
-.btn-play-copy{background:var(--card2);color:var(--txt);border:1px solid var(--line);flex:1}
-.btn-play-copy.done{background:var(--play);color:#fff;border-color:var(--play)}
-.btn-play-open{background:linear-gradient(135deg,var(--play),var(--play2));color:#fff;flex:1}
+.ep-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.btn-ep {
+  flex: 1;
+  height: 38px;
+  background: var(--card2);
+  border: 1px solid var(--line);
+  color: var(--txt);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: .2s;
+}
+.btn-ep:hover:not(:disabled) {
+  border-color: var(--play);
+  color: var(--play);
+}
+.btn-ep:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
 
 .section-title{
   font-size:12px;color:var(--sub);
   margin:14px 2px 8px;
   letter-spacing:.5px;
+  flex-shrink: 0;
 }
 
-.magnet,.episode-item{
+/* 线路折叠 */
+.line-group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  background: var(--card);
+  flex-shrink: 0;
+}
+.line-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--card2);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: .2s;
+  user-select: none;
+}
+.line-header:hover {
+  background: #2a3548;
+}
+.line-header .line-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.line-header .line-count {
+  font-size: 12px;
+  color: var(--sub);
+  font-weight: 400;
+}
+.line-header .line-arrow {
+  font-size: 10px;
+  color: var(--sub);
+  transition: transform .3s;
+}
+.line-group.open .line-arrow {
+  transform: rotate(180deg);
+}
+.line-body {
+  display: none;
+  padding: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.line-group.open .line-body {
+  display: flex;
+}
+.ep-btn {
+  padding: 8px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--txt);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: .2s;
+  white-space: nowrap;
+}
+.ep-btn:hover {
+  border-color: var(--main);
+  color: var(--main);
+}
+.ep-btn.active {
+  background: var(--main);
+  color: #04150f;
+  border-color: var(--main);
+}
+
+.magnet{
   background:var(--card);
   border:1px solid var(--line);
   border-radius:12px;
@@ -391,7 +495,7 @@ button.loading .btxt{display:none}
   animation:fadeUp .3s ease both;
   transition:.2s;
 }
-.magnet:hover,.episode-item:hover{border-color:rgba(32,201,151,.4)}
+.magnet:hover{border-color:rgba(32,201,151,.4)}
 .fname{
   font-size:13px;line-height:1.4;
   word-break:break-all;
@@ -422,7 +526,7 @@ button.loading .btxt{display:none}
 .btn-copy.done{background:var(--main);color:#04150f;border-color:var(--main)}
 .btn-open{background:linear-gradient(135deg,var(--main),var(--main2));color:#04150f}
 
-/* 视频解析 UI 样式 */
+/* 视频解析 */
 .jiexi-box{
   width: 100%;
   margin: 20px auto;
@@ -518,6 +622,7 @@ button.loading .btxt{display:none}
   display:block;
 }
 
+/* 动画 */
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes fadeDown{from{opacity:0;transform:translateY(-14px)}to{opacity:1;transform:none}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}

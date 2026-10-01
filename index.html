@@ -336,139 +336,131 @@ const SOURCES = {
     getHomeUrl: function(){
       return this.base + '/';
     },
-  parseToken: function(html){
-    // 允许 t 值里含 URL 编码字符 %XX、+、=、/
-    const matches = html.match(/t=([A-Za-z0-9+/=%]+)/g) || [];
-    for (let i = 0; i < matches.length; i++){
-      const v = matches[i].slice(2);
-      if (v && v.length > 6 && v.indexOf('<') === -1 && v.indexOf('>') === -1) {
-        return v;
+    parseToken: function(html){
+      const matches = html.match(/t=([A-Za-z0-9+/=%]+)/g) || [];
+      for (let i = 0; i < matches.length; i++){
+        const v = matches[i].slice(2);
+        if (v && v.length > 6 && v.indexOf('<') === -1 && v.indexOf('>') === -1) {
+          return v;
+        }
       }
-    }
-    return '';
-  },
+      return '';
+    },
 
-  getSearchUrl: function(kw, token){
-    // t 若已是 %XX 编码形式，直接用；若是原始 base64，才 encode
-    let tEncoded;
-    if (token.indexOf('%') !== -1) {
-      tEncoded = token;
-    } else {
-      tEncoded = encodeURIComponent(token);
-    }
-    return this.base + '/search?t=' + tEncoded +
-           '&k=' + encodeURIComponent(kw);
-  },
+    getSearchUrl: function(kw, token){
+      let tEncoded = (token.indexOf('%') !== -1) ? token : encodeURIComponent(token);
+      return this.base + '/search?t=' + tEncoded + '&k=' + encodeURIComponent(kw);
+    },
 
-  getSearchUrlGet: function(kw){ return ''; },
-  getSearchOptions: function(kw){ return { method:'GET' }; },
+    getSearchUrlGet: function(kw){ return ''; },
+    getSearchOptions: function(kw){ return { method:'GET' }; },
 
-  parseList: function(html){
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-    const list = [];
-    const seen = new Set();
+    parseList: function(html){
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const list = [];
+      const seen = new Set();
 
-    doc.querySelectorAll('a.search-result-item').forEach(a => {
-      const href = a.getAttribute('href') || '';
-      if (!href || seen.has(href)) return;
-      seen.add(href);
+      doc.querySelectorAll('a.search-result-item').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        if (!href || seen.has(href)) return;
+        seen.add(href);
 
-      const titleEl = a.querySelector('.search-result-item-main .title');
-      const name = titleEl ? titleEl.textContent.trim() : '';
-      if (!name) return;
+        const titleEl = a.querySelector('.search-result-item-main .title');
+        const name = titleEl ? titleEl.textContent.trim() : '';
+        if (!name) return;
+
+        let cover = '';
+        const imgEl = a.querySelector('.search-result-item-pic img');
+        if (imgEl){
+          const src = imgEl.getAttribute('src') || '';
+          const ori = imgEl.getAttribute('data-original') || '';
+          cover = (src && src.indexOf('logo_placeholder') === -1)
+                    ? src
+                    : (ori && ori.indexOf('logo_placeholder') === -1 ? ori : '');
+        }
+
+        const tagEls = a.querySelectorAll('.search-result-item-main .tags span');
+        let year = '', region = '', type = '';
+        if (tagEls.length >= 1) year   = tagEls[0].textContent.trim();
+        if (tagEls.length >= 2) region = tagEls[1].textContent.trim();
+        if (tagEls.length >= 3) type   = tagEls[2].textContent.trim();
+
+        const subParts = [year, region, type].filter(Boolean);
+
+        list.push({
+          name,
+          year: subParts.join(' / '),
+          rank: '',
+          region: region,
+          status: '',
+          cover: abs(cover, this.base),
+          href: abs(href, this.base),
+        });
+      });
+
+      let nextUrl = '', hasMore = false;
+      const nextA = doc.querySelector('.pagenation-box a.page-item-next');
+      if (nextA){
+        const nhref = nextA.getAttribute('href') || '';
+        if (nhref && !nhref.includes('javascript:')){
+          nextUrl = abs(nhref, this.base);
+          hasMore = true;
+        }
+      }
+
+      return {
+        list,
+        prevUrl: '',
+        nextUrl,
+        hasPrev: false,
+        hasMore,
+        currentPage: 1,
+        totalPages: hasMore ? 2 : 1,
+        totalCount: list.length,
+      };
+    },
+
+    parseDetail: function(html){
+      const doc = new DOMParser().parseFromString(html, 'text/html');
 
       let cover = '';
-      const imgEl = a.querySelector('.search-result-item-pic img');
-      if (imgEl){
-        const src = imgEl.getAttribute('src') || '';
-        const ori = imgEl.getAttribute('data-original') || '';
-        cover = (src && src.indexOf('logo_placeholder') === -1)
-                  ? src
-                  : (ori && ori.indexOf('logo_placeholder') === -1 ? ori : '');
-      }
+      const imgEl = doc.querySelector('.detail-pic img, .vod-img img, .pic img');
+      if (imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
 
-      const tagEls = a.querySelectorAll('.search-result-item-main .tags span');
-      let year = '', region = '', type = '';
-      if (tagEls.length >= 1) year   = tagEls[0].textContent.trim();
-      if (tagEls.length >= 2) region = tagEls[1].textContent.trim();
-      if (tagEls.length >= 3) type   = tagEls[2].textContent.trim();
-
-      const subParts = [year, region, type].filter(Boolean);
-
-      list.push({
-        name,
-        year: subParts.join(' / '),
-        rank: '',
-        region: region,
-        status: '',
-        cover: abs(cover, this.base),
-        href: abs(href, this.base),
+      const sources = [];
+      doc.querySelectorAll('.source-item').forEach(el => {
+        const labelEl = el.querySelector('.source-item-label');
+        const numEl   = el.querySelector('.source-item-num');
+        if (!labelEl) return;
+        sources.push({
+          name: labelEl.textContent.trim(),
+          count: numEl ? parseInt(numEl.textContent.trim(), 10) || 0 : 0,
+          active: el.classList.contains('source-item-active'),
+        });
       });
-    });
 
-    let nextUrl = '', hasMore = false;
-    const nextA = doc.querySelector('.pagenation-box a.page-item-next');
-    if (nextA){
-      const nhref = nextA.getAttribute('href') || '';
-      if (nhref && !nhref.includes('javascript:')){
-        nextUrl = abs(nhref, this.base);
-        hasMore = true;
-      }
+      const episodes = [];
+      doc.querySelectorAll('.episode-list .episode-item').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        const spanEl = a.querySelector('span');
+        const title = spanEl ? spanEl.textContent.trim() : '';
+        if (!href) return;
+        episodes.push({
+          title: title || ('第 ' + (episodes.length + 1) + ' 集'),
+          href: abs(href, this.base),
+        });
+      });
+
+      return {
+        cover,
+        magnets: [],
+        playPageUrl: '',
+        playList: [],
+        _sources: sources,
+        _episodes: episodes,
+      };
     }
-
-    return {
-      list,
-      prevUrl: '',
-      nextUrl,
-      hasPrev: false,
-      hasMore,
-      currentPage: 1,
-      totalPages: hasMore ? 2 : 1,
-      totalCount: list.length,
-    };
-  },
-
-  parseDetail: function(html){
-    const doc = new DOMParser().parseFromString(html, 'text/html');
-
-    let cover = '';
-    const imgEl = doc.querySelector('.detail-pic img, .vod-img img, .pic img');
-    if (imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
-
-    const sources = [];
-    doc.querySelectorAll('.source-item').forEach(el => {
-      const labelEl = el.querySelector('.source-item-label');
-      const numEl   = el.querySelector('.source-item-num');
-      if (!labelEl) return;
-      sources.push({
-        name: labelEl.textContent.trim(),
-        count: numEl ? parseInt(numEl.textContent.trim(), 10) || 0 : 0,
-        active: el.classList.contains('source-item-active'),
-      });
-    });
-
-    const episodes = [];
-    doc.querySelectorAll('.episode-list .episode-item').forEach(a => {
-      const href = a.getAttribute('href') || '';
-      const spanEl = a.querySelector('span');
-      const title = spanEl ? spanEl.textContent.trim() : '';
-      if (!href) return;
-      episodes.push({
-        title: title || ('第 ' + (episodes.length + 1) + ' 集'),
-        href: abs(href, this.base),
-      });
-    });
-
-    return {
-      cover,
-      magnets: [],
-      playPageUrl: '',
-      playList: [],
-      _sources: sources,
-      _episodes: episodes,
-    };
   }
-}
 };
 
 /* ============================================================
@@ -479,6 +471,7 @@ const $$ = s => Array.prototype.slice.call(document.querySelectorAll(s));
 
 function toast(msg){
   const t = $('#toast');
+  if(!t) return;
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._t);
@@ -656,7 +649,7 @@ function startHlsPlayer(videoUrl){
 }
 
 /* ============================================================
-   网络请求
+   网络请求与防盾处理
    ============================================================ */
 async function fetchViaRelay(url, opts, timeout){
   const target = CONFIG.relay + encodeURIComponent(url);
@@ -665,23 +658,6 @@ async function fetchViaRelay(url, opts, timeout){
   return await r.text();
 }
 
-async function requestSearch(keyword){
-  const src = SOURCES[currentSource];
-
-  // ===== 毒舌：先拿首页 → 抽 t → 拼搜索 URL =====
-  if(currentSource === 'dushe3'){
-    const homeHtml = await fetchViaRelay(src.getHomeUrl(), {});
-    const token = src.parseToken(homeHtml);
-    if(!token) throw new Error('未能从首页提取到 t 参数');
-    console.log('[dushe3] token =', token);
-
-    const searchUrl = src.getSearchUrl(keyword, token);
-    const html = await fetchViaRelay(searchUrl, {});
-    if(!html || html.length < 100) throw new Error('搜索结果为空');
-    return html;
-  }
-
- /* ================= 毒舌无感解盾辅助逻辑 ================= */
 async function autoSolveDusheShield(homeUrl) {
   return new Promise((resolve) => {
     let iframe = document.getElementById('dushe_shield_iframe');
@@ -692,7 +668,6 @@ async function autoSolveDusheShield(homeUrl) {
     iframe.style.display = 'none';
     document.body.appendChild(iframe);
 
-    // 监听 Cookie 生成
     const checkTimer = setInterval(() => {
       const match = document.cookie.match(/cdndefend_js_cookie=[^;]+/);
       if (match) {
@@ -702,7 +677,6 @@ async function autoSolveDusheShield(homeUrl) {
       }
     }, 200);
 
-    // 3秒超时保障
     setTimeout(() => {
       clearInterval(checkTimer);
       if (iframe) iframe.remove();
@@ -713,7 +687,6 @@ async function autoSolveDusheShield(homeUrl) {
   });
 }
 
-/* ================= 搜索请求业务逻辑更新 ================= */
 async function requestSearch(keyword) {
   const src = SOURCES[currentSource];
 
@@ -721,12 +694,10 @@ async function requestSearch(keyword) {
     let homeHtml = await fetchViaRelay(src.getHomeUrl());
     let token = src.parseToken(homeHtml);
 
-    // 若未拿到 token（触发了 JS 盾），开启无感后台解盾
     if (!token) {
       console.log('[dushe3] 命中 5 秒盾，启动后台无感计算 Cookie...');
       await autoSolveDusheShield(src.getHomeUrl());
       
-      // 重新获取首页内容
       homeHtml = await fetchViaRelay(src.getHomeUrl());
       token = src.parseToken(homeHtml);
     }
@@ -739,7 +710,6 @@ async function requestSearch(keyword) {
     return html;
   }
 
-  // 其它源逻辑不变...
   const postOpts = src.getSearchOptions(keyword);
   let txt = '';
   try {
@@ -749,7 +719,6 @@ async function requestSearch(keyword) {
   }
   return txt;
 }
-
 
 async function requestUrl(url){
   return await fetchViaRelay(url, {});
@@ -892,7 +861,6 @@ function renderError(msg, keyword){
   if(r) r.onclick = function(){ doSearch(keyword); };
 }
 
-/* 渲染视频解析面板 */
 function renderJiexiUI(){
   $('#stat').style.display = 'none';
   const html =
@@ -1020,7 +988,6 @@ function closeDetail(){
   try{ history.back(); }catch(e){}
 }
 
-/* ================== 详情页（正确顺序：拼 body → 写入 → 绑定事件）================== */
 async function openDetail(item){
   if(detailOpen) return;
   detailOpen = true;
@@ -1046,7 +1013,6 @@ async function openDetail(item){
 
     let body = '';
 
-    // ===== 播放器容器 =====
     body +=
       '<div class="playbox" id="playerBox" style="display:none;">' +
         '<div class="ptitle">▶ 在线播放器</div>' +
@@ -1056,7 +1022,6 @@ async function openDetail(item){
         '</div>' +
       '</div>';
 
-    // ===== 播放探测（磁力熊用）=====
     if(detailData.playPageUrl){
       body +=
         '<div class="playbox">' +
@@ -1069,7 +1034,6 @@ async function openDetail(item){
         '</div>';
     }
 
-    // ===== 在线播放列表（非凡资源用）=====
     if(detailData.playList && detailData.playList.length){
       body += '<div class="section-title">在线播放列表（' + detailData.playList.length + '）</div>';
       body += detailData.playList.map(function(p, i){
@@ -1085,7 +1049,6 @@ async function openDetail(item){
       }).join('');
     }
 
-    // ===== 磁力资源（磁力熊用）=====
     if(detailData.magnets && detailData.magnets.length){
       body += '<div class="section-title">磁力资源（' + detailData.magnets.length + '）</div>';
       body += detailData.magnets.map(function(m, i){
@@ -1102,7 +1065,6 @@ async function openDetail(item){
       }).join('');
     }
 
-    // ===== 毒舌：切换线路 =====
     if(detailData._sources && detailData._sources.length){
       body += '<div class="section-title">切换线路</div>';
       body += '<div class="dushe-sources">';
@@ -1116,7 +1078,6 @@ async function openDetail(item){
       body += '</div>';
     }
 
-    // ===== 毒舌：选集 =====
     if(detailData._episodes && detailData._episodes.length){
       body += '<div class="section-title">选集播放（' + detailData._episodes.length + '）</div>';
       body += '<div class="dushe-episodes">';
@@ -1130,7 +1091,6 @@ async function openDetail(item){
       body += '</div>';
     }
 
-    // ===== 有没有任何可播放内容（只声明一次！）=====
     const hasAnything =
       detailData.playPageUrl ||
       (detailData.magnets && detailData.magnets.length) ||
@@ -1141,12 +1101,8 @@ async function openDetail(item){
       body += '<div class="empty" style="padding:30px 0"><p>该影片暂未解析到磁力或播放地址</p></div>';
     }
 
-    // ===== 一次性写入 DOM =====
     $('#dBody').innerHTML = body;
 
-    // ===== 以下所有事件绑定，必须在 innerHTML 之后 =====
-
-    // 磁力复制
     $$('#dBody .btn-copy[data-magnet]').forEach(function(b){
       b.onclick = async function(){
         const ok = await copyText(b.dataset.magnet);
@@ -1155,14 +1111,12 @@ async function openDetail(item){
       };
     });
 
-    // 磁力打开
     $$('#dBody .btn-open[data-magnet]').forEach(function(b){
       b.onclick = function(){
         try{ location.href = b.dataset.magnet; }catch(e){ toast('无法打开磁力链接'); }
       };
     });
 
-    // 播放链接复制
     $$('#dBody .btn-copy[data-url]').forEach(function(b){
       b.onclick = async function(){
         const ok = await copyText(b.dataset.url);
@@ -1171,7 +1125,6 @@ async function openDetail(item){
       };
     });
 
-    // 播放链接立即播放（非凡资源）
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = function(){
         const url = b.dataset.url;
@@ -1182,7 +1135,6 @@ async function openDetail(item){
       };
     });
 
-    // 毒舌：线路切换（视觉）
     $$('#dBody .dushe-source-btn').forEach(btn => {
       btn.onclick = function(){
         $$('#dBody .dushe-source-btn').forEach(b => b.classList.remove('active'));
@@ -1190,7 +1142,6 @@ async function openDetail(item){
       };
     });
 
-    // 毒舌：点击集数 → 解析播放页 → 播 m3u8
     $$('#dBody .btn-play-dushe-ep').forEach(btn => {
       btn.onclick = async function(){
         const href = btn.dataset.href;
@@ -1223,7 +1174,6 @@ async function openDetail(item){
       };
     });
 
-    // 磁力熊：探测播放地址
     if(detailData.playPageUrl){
       probePlayUrl(detailData.playPageUrl);
     }
@@ -1287,7 +1237,7 @@ async function probePlayUrl(playPageUrl){
 }
 
 /* ============================================================
-   事件绑定
+   事件初始化绑定（已正确挂载到 Script 作用域顶级）
    ============================================================ */
 window.addEventListener('popstate', function(){
   if(detailOpen){

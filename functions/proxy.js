@@ -37,7 +37,7 @@ export async function onRequest(context) {
 
   const isIframeReq = u.searchParams.get('iframe') === '1';
 
-  // 前端可指定 Referer（关键修复）
+  // ★ 前端可指定 Referer（避免被 CDN 判定为盗链）
   const customReferer = request.headers.get('x-target-referer') || '';
 
   const reqHeaders = new Headers({
@@ -46,18 +46,16 @@ export async function onRequest(context) {
   });
 
   if (isMedia) {
-    // ★ 媒体资源：不再硬塞 Referer/Origin，避免被 CDN 判定为盗链
+    // ★ 媒体请求：默认不带 Referer，只有前端明确指定时才带
     reqHeaders.set('Accept', '*/*');
     reqHeaders.set('Sec-Fetch-Dest', 'empty');
     reqHeaders.set('Sec-Fetch-Mode', 'cors');
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
-    // 只有前端明确指定时才带 Referer
     if (customReferer) {
       reqHeaders.set('Referer', customReferer);
       try { reqHeaders.set('Origin', new URL(customReferer).origin); } catch(e){}
     }
   } else {
-    // 页面资源
     reqHeaders.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
     reqHeaders.set('Cache-Control', 'no-cache');
     reqHeaders.set('Pragma', 'no-cache');
@@ -95,7 +93,6 @@ export async function onRequest(context) {
 
     const headers = new Headers(cors());
 
-    // ---------- m3u8：重写内容 ----------
     const respIsM3U8 = isM3U8 || /mpegurl/i.test(ct);
 
     if (respIsM3U8) {
@@ -129,7 +126,6 @@ export async function onRequest(context) {
       return new Response(text, { status: resp.status, headers });
     }
 
-    // ---------- 其他资源原样返回 ----------
     const body = await resp.arrayBuffer();
     if (ct) headers.set('Content-Type', ct);
 

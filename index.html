@@ -548,6 +548,7 @@ function escapeAttr(s){
 function extractVideoUrl(text){
   if(!text) return '';
 
+  // 先做常见转义还原
   let s = String(text)
     .replace(/\\\//g, '/')
     .replace(/&amp;/g, '&')
@@ -556,24 +557,39 @@ function extractVideoUrl(text){
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>');
 
-  const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/gi;
-  let iframeMatch;
-  while((iframeMatch = iframeRegex.exec(s)) !== null){
-    const src = iframeMatch[1];
+  // 规范化 URL：自动把中文、空格等编码成合法字符，避免代理/播放器 fetch 失败
+  const normalize = (u) => {
+    if(!u) return u;
+    try {
+      return new URL(u).href;
+    } catch(e) {
+      return u.replace(/[\u4e00-\u9fa5\s]/g, c => encodeURIComponent(c));
+    }
+  };
 
-    const urlMatch = src.match(/[?&]url=([^&"'\s]+)/i);
-    if(urlMatch){
-      let u = urlMatch[1];
-      try { u = decodeURIComponent(u); } catch(e){}
-      if(MEDIA_RE.test(u)) return u;
+  // 1. 优先解析 iframe 的 src 里的 url= 参数（奈飞播放页核心结构）
+  //    例：https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=https://p.xxx.com/.../HD中字版/index.m3u8
+  const iframeRegex = /<iframe[^>]*\ssrc=["']([^"']+)["']/gi;
+  let m;
+  while((m = iframeRegex.exec(s)) !== null){
+    const src = m[1];
+
+    // 1.1 提取 url= 到引号之前的完整内容
+    const urlParamMatch = src.match(/[?&]url=([^"']+)/i);
+    if(urlParamMatch){
+      const u = urlParamMatch[1];
+      if(MEDIA_RE.test(u)) return normalize(u);
     }
 
-    if(MEDIA_RE.test(src)) return src;
+    // 1.2 src 本身就是媒体直链
+    if(MEDIA_RE.test(src)) return normalize(src);
 
-    const m = src.match(/https?:\/\/[^\s"'<>\\]+?\.(m3u8|mp4|flv)[^\s"'<>\\]*/i);
-    if(m) return m[0];
+    // 1.3 src 中直接包含媒体地址
+    const mm = src.match(/https?:\/\/[^\s"'<>\\]+?\.(m3u8|mp4|flv)[^\s"'<>\\]*/i);
+    if(mm) return normalize(mm[0]);
   }
 
+  // 2. 兜底：在整个 HTML 中搜索媒体地址
   const patterns = [
     /https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i,
     /https?:\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
@@ -582,11 +598,11 @@ function extractVideoUrl(text){
     /\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
   ];
   for(let i=0;i<patterns.length;i++){
-    const m = s.match(patterns[i]);
-    if(m){
-      let u = m[0];
+    const mm = s.match(patterns[i]);
+    if(mm){
+      let u = mm[0];
       if(u.startsWith('//')) u = 'https:' + u;
-      return u;
+      return normalize(u);
     }
   }
   return '';
@@ -615,7 +631,7 @@ function startHlsPlayer(videoUrl){
   destroyHls();
   container.style.display = 'block';
 
-  // 统一通过代理加载，保证跨域和 Referer 问题都被代理层处理
+  // 统一通过代理加载：代理层会重写 m3u8 里的分片地址，整条链路都走代理
   const playSrc = CONFIG.relay + encodeURIComponent(videoUrl);
 
   if(typeof Hls !== 'undefined' && Hls.isSupported()){
@@ -1094,6 +1110,7 @@ async function openDetail(item){
         const playerBox = $('#playerBox');
         const paddr = $('#paddr');
 
+        // 情况1：本身就是媒体直链，直接播放
         if(MEDIA_RE.test(rawUrl)){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
@@ -1105,6 +1122,8 @@ async function openDetail(item){
           return;
         }
 
+        // 情况2：是播放页（如奈飞 /vodplay/xxx-1-1.html），
+        //        先请求播放页从中提取真实 m3u8，成功才调用播放器
         const old = b.textContent;
         b.textContent = '解析中…';
         b.disabled = true;
@@ -1128,6 +1147,7 @@ async function openDetail(item){
 
         if(!detailOpen) return;
 
+        // 解析失败：不调用播放器，只提示
         if(!playUrl){
           if(paddr){
             paddr.className = 'paddr fail';
@@ -1137,6 +1157,7 @@ async function openDetail(item){
           return;
         }
 
+        // 解析成功：显示播放器并播放
         if(playerBox) playerBox.style.display = 'block';
         if(paddr){
           paddr.className = 'paddr ok';
@@ -1275,4 +1296,4 @@ document.addEventListener('keydown', function(e){
 $('#kw').value = '';
 </script>
 </body>
-  </html>
+</html>

@@ -51,29 +51,74 @@ body{
   animation:pulse 2s infinite;
 }
 
-.source-selector{
-  display:flex;
-  gap:4px;
+/* ============================================================
+   ★ 片源下拉列表（替换原 .source-selector / .src-btn）
+   ============================================================ */
+.src-dropdown{
+  position:relative;
   margin-left:auto;
-  background:var(--bg2);
-  padding:3px;
-  border-radius:10px;
-  border:1px solid var(--line);
-  overflow:hidden;
+  flex-shrink:0;
 }
-.src-btn{
-  background:transparent;
-  border:none;
-  color:var(--sub);
-  padding:5px 10px;
-  border-radius:7px;
+.src-toggle{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:6px 12px;
+  color:var(--txt);
   font-size:12px;
   font-weight:600;
   cursor:pointer;
   transition:.2s;
   white-space:nowrap;
 }
-.src-btn.active{
+.src-toggle:active{transform:scale(.96)}
+.src-toggle .src-name{color:var(--main)}
+.src-toggle .src-arrow{
+  font-size:9px;
+  color:var(--sub);
+  transition:transform .2s;
+  display:inline-block;
+}
+.src-dropdown.open .src-arrow{
+  transform:rotate(180deg);
+}
+.src-menu{
+  position:absolute;
+  top:calc(100% + 6px);
+  right:0;
+  min-width:130px;
+  background:var(--bg2);
+  border:1px solid var(--line);
+  border-radius:10px;
+  padding:4px;
+  display:none;
+  flex-direction:column;
+  gap:2px;
+  z-index:60;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
+}
+.src-dropdown.open .src-menu{
+  display:flex;
+  animation:fadeDown .18s ease;
+}
+.src-item{
+  background:transparent;
+  border:none;
+  color:var(--txt);
+  padding:9px 12px;
+  border-radius:7px;
+  font-size:12px;
+  font-weight:600;
+  text-align:left;
+  cursor:pointer;
+  transition:.15s;
+  white-space:nowrap;
+}
+.src-item:active{transform:scale(.97)}
+.src-item.active{
   background:var(--main);
   color:#04150f;
   box-shadow:0 2px 8px rgba(32,201,151,.3);
@@ -325,6 +370,7 @@ button.loading .btxt{display:none}
   margin-top:10px;
 }
 .player-container video{width:100%;height:100%;outline:none;background:#000;display:block}
+.player-container iframe{width:100%;height:100%;border:none;display:block;background:#000}
 
 .btn-play-copy{background:var(--card2);color:var(--txt);border:1px solid var(--line);flex:1}
 .btn-play-copy.done{background:var(--play);color:#fff;border-color:var(--play)}
@@ -378,16 +424,16 @@ button.loading .btxt{display:none}
 
 /* 视频解析 UI 样式 */
 .jiexi-box{
-  width: 100%;        /* 确保占满宽度 */
+  width: 100%;
   margin: 20px auto;
-  padding: 0 10px;    /* 如果不想紧贴屏幕边缘，保留10px；想完全贴边改为 0 */
+  padding: 0 10px;
   animation: fadeIn .4s ease;
 }
 .jiexi-card{
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 0px;       /* 可以改成 10px 或 14px，让内部空间更大 */
+  padding: 0px;
 }
 .jiexi-row{
   display:flex;
@@ -457,8 +503,8 @@ button.loading .btxt{display:none}
 .jiexi-input-group button:active{transform:scale(.96)}
 .jiexi-player{
   margin-top: 16px;
-  width: 100%;           /* 宽度占满父容器 */
-  height: 460px;         /* 新增：固定高度 */
+  width: 100%;
+  height: 460px;
   background: #000;
   border-radius: 10px;
   overflow: hidden;
@@ -490,5 +536,3 @@ button.loading .btxt{display:none}
   max-width:80vw;text-align:center;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-
-

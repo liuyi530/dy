@@ -603,7 +603,6 @@ function extractVideoUrl(text){
 
 /* ============================================================
    从播放页 HTML 里提取 iframe 的 src（如奈飞的 ec.php）
-   更宽松的匹配：允许 src 前后有其它属性
    ============================================================ */
 function extractIframeSrc(html){
   if(!html) return '';
@@ -619,8 +618,10 @@ function extractIframeSrc(html){
 }
 
 /* ============================================================
-   从 player_aaaa 变量里解析出 ec.php iframe 的 src
-   奈飞站点的 url 字段经过 base64 + URL 编码，得到的是加密 token
+   ★ 关键：从 player_aaaa 变量里拼出 ec.php 的 iframe 地址
+   ★ 奈飞播放页的原始 HTML 里没有 iframe，只有 player_aaaa 变量
+   ★ 变量里的 url 经过 base64 + URL 编码，解码后得到加密 token
+   ★ 拼成 https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=<token>
    ============================================================ */
 function extractIframeFromPlayerData(html){
   if(!html) return '';
@@ -636,7 +637,7 @@ function extractIframeFromPlayerData(html){
   }
   if(!obj || !obj.url) return '';
 
-  // 1. base64 解码
+  // base64 解码
   let decoded = '';
   try {
     decoded = atob(obj.url);
@@ -644,20 +645,15 @@ function extractIframeFromPlayerData(html){
     return '';
   }
 
-  // 2. 再 URL 解码
+  // 再 URL 解码
   try {
     decoded = decodeURIComponent(decoded);
-  } catch(e){
-    // 忽略
-  }
+  } catch(e){}
 
-  // decoded 形如 NBY-XMYAES49d5986f...|af3bd38c...
-  // 前端不容易直接知道 ec.php 完整前缀，交给页面自己处理更稳
-  // 但如果我们知道 from 字段，可以拼：
-  //   https://cjbfq.netflixgc.tv/player/ec.php?code=<from.toLowerCase()>&if=1&url=<decoded>
-  // 这里先返回空，避免猜错；实际兜底交给 iframe 加载播放页
-
-  return '';
+  // decoded 形如：NBY-XMYAES49d5986f...|af3bd38ca...
+  // 拼 ec.php（域名和 code 从奈飞播放器结构推断，是固定值）
+  const ecUrl = 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
+  return ecUrl;
 }
 
 /* ============================================================
@@ -738,9 +734,9 @@ function startHlsPlayer(videoUrl){
 
 /* ============================================================
    用 iframe 播放（用于加密 token 的站点，如奈飞的 ec.php）
-   byRelay = true 时，iframe 也走代理（用于绕过 X-Frame-Options）
+   直连（不走代理），让 ec.php 自己执行解密逻辑
    ============================================================ */
-function playWithIframe(iframeSrc, byRelay){
+function playWithIframe(iframeSrc){
   if(!iframeSrc) return;
 
   const container = $('#playerContainer');
@@ -760,12 +756,7 @@ function playWithIframe(iframeSrc, byRelay){
 
   container.style.display = 'block';
   iframe.style.display = 'block';
-
-  let finalSrc = iframeSrc;
-  if(byRelay){
-    finalSrc = CONFIG.relay + encodeURIComponent(iframeSrc) + '&iframe=1';
-  }
-  iframe.src = finalSrc;
+  iframe.src = iframeSrc;
 }
 
 /* ============================================================
@@ -1193,12 +1184,11 @@ async function openDetail(item){
     });
 
     /* =========================================================
-       播放按钮：五段式兜底
+       播放按钮：四段式
        ① 直链 → HLS
        ② 播放页 → 提取 m3u8 → HLS
-       ③ 播放页 → 提取 iframe src → iframe 播放（直连）
-       ④ 播放页 → 提取 iframe src → iframe 播放（走代理）
-       ⑤ 播放页 → 直接用 iframe 加载整个播放页（走代理）
+       ③ 播放页 → 提取 iframe src（或从 player_aaaa 拼 ec.php） → iframe 播放
+       ④ 全部失败 → 提示
        ========================================================= */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
@@ -1208,7 +1198,7 @@ async function openDetail(item){
         const playerBox = $('#playerBox');
         const paddr = $('#paddr');
 
-        // ---------- ① 直链直接播放 ----------
+        // ① 直链直接播放
         if(MEDIA_RE.test(rawUrl)){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
@@ -1220,7 +1210,7 @@ async function openDetail(item){
           return;
         }
 
-        // ---------- 请求播放页 ----------
+        // 请求播放页
         const old = b.textContent;
         b.textContent = '解析中…';
         b.disabled = true;
@@ -1237,9 +1227,11 @@ async function openDetail(item){
           page = await requestUrl(rawUrl);
           playUrl = extractVideoUrl(page);
           iframeUrl = extractIframeSrc(page);
+          if(!iframeUrl){
+            iframeUrl = extractIframeFromPlayerData(page);
+          }
           console.log('[解析播放页]', rawUrl);
           console.log('[播放页HTML长度]', page.length);
-          console.log('[播放页HTML前300]', page.slice(0, 300));
           console.log('[提取到 m3u8]', playUrl);
           console.log('[提取到 iframe]', iframeUrl);
         }catch(e){
@@ -1252,7 +1244,7 @@ async function openDetail(item){
 
         if(!detailOpen) return;
 
-        // ---------- ② m3u8 → HLS ----------
+        // ② m3u8 → HLS
         if(playUrl){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
@@ -1264,37 +1256,23 @@ async function openDetail(item){
           return;
         }
 
-        // ---------- ③ iframe 直连 ----------
+        // ③ iframe 播放（ec.php 直连）
         if(iframeUrl){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
             paddr.className = 'paddr ok';
             paddr.textContent = iframeUrl;
           }
-          playWithIframe(iframeUrl, false);   // 先直连
+          playWithIframe(iframeUrl);
           $('#dBody').scrollTo({ top:0, behavior:'smooth' });
           toast('已切换 iframe 模式播放');
           return;
         }
 
-        // ---------- ⑤ 兜底：直接把播放页整体塞进 iframe（走代理）----------
-        // 播放页本身会执行 JS 加载 ec.php 完成解密播放
-        if(page && page.length > 100){
-          if(playerBox) playerBox.style.display = 'block';
-          if(paddr){
-            paddr.className = 'paddr ok';
-            paddr.textContent = '（整页 iframe 兜底）' + rawUrl;
-          }
-          playWithIframe(rawUrl, true);   // 走代理 + iframe=1
-          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-          toast('已切换整页 iframe 模式播放');
-          return;
-        }
-
-        // ---------- 全部失败 ----------
+        // ④ 全部失败
         if(paddr){
           paddr.className = 'paddr fail';
-          paddr.textContent = '未解析到播放地址，页面可能返回异常';
+          paddr.textContent = '未解析到播放地址';
         }
         toast('未解析到播放地址，无法播放');
       };

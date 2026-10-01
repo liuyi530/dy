@@ -84,34 +84,24 @@ const SOURCES = {
     base: 'https://www.cilixiong.org',
     searchPath: '/e/search/index.php',
 
-    getSearchUrl: function(kw){
-      return this.base + this.searchPath;
-    },
+    getSearchUrl: function(kw){ return this.base + this.searchPath; },
     getSearchUrlGet: function(kw){
       return this.base + this.searchPath +
-        '?searchget=1&classid=1,2&show=title&tempid=1&keyboard=' +
-        encodeURIComponent(kw);
+        '?searchget=1&classid=1,2&show=title&tempid=1&keyboard=' + encodeURIComponent(kw);
     },
     getSearchOptions: function(kw){
       const body = encodeForm({ classid:'1,2', show:'title', tempid:'1', keyboard: kw });
-      return {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body
-      };
+      return { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body };
     },
-
     parseList: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
       const list = [];
       const seen = new Set();
-
       const pushItem = (nameEl, yearEl, rankEl, coverEl, href) => {
         if(!nameEl) return;
         const name = nameEl.textContent.trim();
         if(!name || seen.has(href + name)) return;
         seen.add(href + name);
-
         let cover = '';
         if(coverEl){
           const bg = coverEl.getAttribute('style') || '';
@@ -126,7 +116,6 @@ const SOURCES = {
           href: abs(href, this.base)
         });
       };
-
       doc.querySelectorAll('.card.card-cover').forEach(card => {
         const a = card.closest('a') || card.querySelector('a');
         if(!a) return;
@@ -138,7 +127,6 @@ const SOURCES = {
           a.getAttribute('href')
         );
       });
-
       if(list.length === 0){
         doc.querySelectorAll('a[href*="/movie/"]').forEach(a => {
           const card = a.querySelector('.card') || a;
@@ -151,19 +139,15 @@ const SOURCES = {
           );
         });
       }
-
       return {
-        list,
-        prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
+        list, prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
         currentPage:1, totalPages:1, totalCount: list.length
       };
     },
-
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
       const magnets = [];
       const seen = new Set();
-
       doc.querySelectorAll('a[href^="magnet:"]').forEach(a => {
         const href = a.getAttribute('href');
         if(!href || seen.has(href)) return;
@@ -174,14 +158,12 @@ const SOURCES = {
         if(m) size = m[1];
         magnets.push({ title: text || '磁力资源', size, magnet: href });
       });
-
       let playPageUrl = '';
       const iframe = doc.querySelector('.embed_video iframe') || doc.querySelector('iframe[src*="jx.php"]');
       if(iframe){
         const src = iframe.getAttribute('src') || '';
         if(src) playPageUrl = abs(src, this.base);
       }
-
       return { magnets, playPageUrl, playList: [] };
     }
   },
@@ -190,88 +172,62 @@ const SOURCES = {
   ffzy: {
     name: '非凡资源',
     base: 'https://www.ffzy.tv',
-
-    getSearchUrl: function(kw){
-      return this.base + '/index.php/vod/search.html';
-    },
+    getSearchUrl: function(kw){ return this.base + '/index.php/vod/search.html'; },
     getSearchUrlGet: function(kw){
       return this.base + '/index.php/vod/search.html?wd=' + encodeURIComponent(kw);
     },
     getSearchOptions: function(kw){
       const body = encodeForm({ wd: kw });
-      return {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body
-      };
+      return { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body };
     },
-
     parseList: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
       const list = [];
-
       let items = doc.querySelectorAll('ul.videoContent > li');
       if(items.length === 0) items = doc.querySelectorAll('a.videoName');
-
       items.forEach(node => {
         let a = null;
         let scope = node;
-        if(node.tagName === 'A'){
-          a = node;
-          scope = node.closest('li') || node;
-        }else{
-          a = node.querySelector('a.videoName') || node.querySelector('a.address');
-        }
+        if(node.tagName === 'A'){ a = node; scope = node.closest('li') || node; }
+        else { a = node.querySelector('a.videoName') || node.querySelector('a.address'); }
         if(!a) return;
-
         const href = a.getAttribute('href');
         if(!href) return;
-
         const clone = a.cloneNode(true);
         const statusEl = clone.querySelector('i');
         const status = statusEl ? statusEl.textContent.trim() : '';
         if(statusEl) statusEl.remove();
         const name = clone.textContent.trim() || '未知片名';
-
         const regionEl = scope.querySelector('.region');
         const typeEl   = scope.querySelector('.category') || scope.querySelector('.type');
         const timeEl   = scope.querySelector('.time1')    || scope.querySelector('.time');
-
         list.push({
           name,
           year:   timeEl   ? timeEl.textContent.trim()   : '',
           rank:   typeEl   ? typeEl.textContent.trim()   : '',
           region: regionEl ? regionEl.textContent.trim() : '',
-          status,
-          cover: '',
-          href:  abs(href, this.base)
+          status, cover: '', href: abs(href, this.base)
         });
       });
-
       let prevUrl = '', nextUrl = '';
       let hasPrev = false, hasMore = false;
       let currentPage = 1, totalPages = 1, totalCount = list.length;
-
       const pageBox = doc.querySelector('.pages') || doc.querySelector('.page') || doc.querySelector('.kscont');
       if(pageBox){
         const prevA = pageBox.querySelector('a[title="上一页"]');
         if(prevA){
           const phref = prevA.getAttribute('href') || '';
           if(phref && !phref.includes('javascript:') && phref !== '#'){
-            prevUrl = abs(phref, this.base);
-            hasPrev = true;
+            prevUrl = abs(phref, this.base); hasPrev = true;
           }
         }
-
         const nextA = pageBox.querySelector('a[title="下一页"]');
         if(nextA){
           const nhref = nextA.getAttribute('href') || '';
           if(nhref && !nhref.includes('javascript:') && nhref !== '#'){
-            nextUrl = abs(nhref, this.base);
-            hasMore = true;
+            nextUrl = abs(nhref, this.base); hasMore = true;
           }
         }
-
         const statSpan = pageBox.querySelector('span.disabled') || pageBox;
         const text = statSpan ? (statSpan.textContent || '') : '';
         const m = text.match(/共\s*(\d+)\s*条数据.*?当前\s*(\d+)\s*\/\s*(\d+)\s*页/);
@@ -287,23 +243,17 @@ const SOURCES = {
           }
         }
       }
-
       if(currentPage <= 1){ hasPrev = false; prevUrl = ''; }
       if(currentPage >= totalPages){ hasMore = false; nextUrl = ''; }
-
       return { list, prevUrl, nextUrl, hasPrev, hasMore, currentPage, totalPages, totalCount };
     },
-
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
-
       let cover = '';
       const imgEl = doc.querySelector('.left img') || doc.querySelector('.vodImg img');
       if(imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
-
       const playList = [];
       const seen = new Set();
-
       doc.querySelectorAll('input[name*="copy_ffm3u8"]').forEach(ipt => {
         const val = (ipt.value || '').trim();
         if(!val.includes('$')) return;
@@ -314,7 +264,6 @@ const SOURCES = {
         seen.add(url);
         playList.push({ title: quality, url });
       });
-
       if(playList.length === 0){
         const text = doc.body ? (doc.body.innerText || doc.body.textContent || '') : '';
         for(const m of text.matchAll(/([^\n\$]+?)\$((?:https?:\/\/)[^\s\$\n]+?\.m3u8[^\s\$\n]*)/gi)){
@@ -325,7 +274,6 @@ const SOURCES = {
           playList.push({ title: quality, url });
         }
       }
-
       return { cover, magnets: [], playPageUrl: '', playList };
     }
   },
@@ -334,28 +282,22 @@ const SOURCES = {
   netflix: {
     name: '奈飞',
     base: 'https://www.netflixgc.com',
-
     getSearchUrl: function(kw){
       return this.base + '/vodsearch/-------------.html?wd=' + encodeURIComponent(kw);
     },
     getSearchUrlGet: function(kw){
       return this.base + '/vodsearch/-------------.html?wd=' + encodeURIComponent(kw);
     },
-    getSearchOptions: function(kw){
-      return { method: 'GET' };
-    },
-
+    getSearchOptions: function(kw){ return { method: 'GET' }; },
     parseList: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
       const list = [];
       const seen = new Set();
-
       const pickCover = (scope) => {
         const img = scope.querySelector ? scope.querySelector('.detail-pic img') || scope.querySelector('img') : null;
         if(!img) return '';
         return img.getAttribute('data-src') || img.getAttribute('src') || '';
       };
-
       const boxes = doc.querySelectorAll('.public-list-box');
       if(boxes.length){
         boxes.forEach(box => {
@@ -363,16 +305,11 @@ const SOURCES = {
           if(!a) return;
           const href = a.getAttribute('href') || '';
           if(!href || seen.has(href)) return;
-
           const titleEl = box.querySelector('.slide-info-title') || box.querySelector('h3');
           const name = titleEl ? titleEl.textContent.trim() : '';
           if(!name) return;
-
           seen.add(href);
-
-          const noteEl = box.querySelector('.public-list-prb') ||
-                         box.querySelector('.slide-info-remarks');
-
+          const noteEl = box.querySelector('.public-list-prb') || box.querySelector('.slide-info-remarks');
           list.push({
             name,
             year: noteEl ? noteEl.textContent.trim() : '',
@@ -382,56 +319,37 @@ const SOURCES = {
           });
         });
       }
-
       if(list.length === 0){
         doc.querySelectorAll('a[href*="/voddetail/"]').forEach(a => {
           const href = a.getAttribute('href') || '';
           if(!href || seen.has(href)) return;
-
-          const scope = a.closest('.public-list-box') ||
-                        a.closest('li') ||
-                        a.parentElement || a;
-
-          const titleEl = scope.querySelector
-            ? (scope.querySelector('.slide-info-title') || scope.querySelector('h3'))
-            : null;
+          const scope = a.closest('.public-list-box') || a.closest('li') || a.parentElement || a;
+          const titleEl = scope.querySelector ? (scope.querySelector('.slide-info-title') || scope.querySelector('h3')) : null;
           const name = titleEl ? titleEl.textContent.trim() : a.textContent.trim();
           if(!name || name.length > 60) return;
-
           seen.add(href);
-
           list.push({
-            name,
-            year: '',
-            rank: '',
+            name, year: '', rank: '',
             cover: abs(pickCover(scope), this.base),
             href: abs(href, this.base)
           });
         });
       }
-
       return {
-        list,
-        prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
+        list, prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
         currentPage:1, totalPages:1, totalCount: list.length
       };
     },
-
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
-
       let cover = '';
       const imgEl = doc.querySelector('.detail-pic img') || doc.querySelector('.vodImg img');
       if(imgEl) cover = abs(imgEl.getAttribute('data-src') || imgEl.getAttribute('src'), this.base);
-
       const tabs = doc.querySelectorAll('.vod-playerUrl');
       const boxes = doc.querySelectorAll('.anthology-list-box');
-
       const playList = [];
       const seen = new Set();
-
       const total = Math.max(tabs.length, boxes.length);
-
       for(let i = 0; i < total; i++){
         let lineName = '';
         if(tabs[i]){
@@ -440,26 +358,18 @@ const SOURCES = {
           lineName = (clone.textContent || '').replace(/\s+/g, ' ').trim();
         }
         if(!lineName) lineName = '线路' + (i + 1);
-
         const box = boxes[i];
         if(!box) continue;
-
         box.querySelectorAll('a[href*="/vodplay/"]').forEach(a => {
           const href = a.getAttribute('href') || '';
           if(!href || seen.has(href)) return;
           seen.add(href);
-
           const sp = a.querySelector('span');
           let epName = sp ? sp.textContent.trim() : (a.textContent || '').trim();
           if(!epName) epName = '正片';
-
-          playList.push({
-            title: lineName + ' · ' + epName,
-            url: abs(href, this.base)
-          });
+          playList.push({ title: lineName + ' · ' + epName, url: abs(href, this.base) });
         });
       }
-
       return { cover, magnets: [], playPageUrl: '', playList };
     }
   }
@@ -504,10 +414,8 @@ function fetchWithTimeout(url, options, timeout){
 }
 
 async function copyText(text){
-  try{
-    await navigator.clipboard.writeText(text);
-    return true;
-  }catch(e){
+  try{ await navigator.clipboard.writeText(text); return true; }
+  catch(e){
     try{
       const ta = document.createElement('textarea');
       ta.value = text;
@@ -518,9 +426,7 @@ async function copyText(text){
       document.execCommand('copy');
       ta.remove();
       return true;
-    }catch(err){
-      return false;
-    }
+    }catch(err){ return false; }
   }
 }
 
@@ -545,11 +451,10 @@ function escapeAttr(s){
 }
 
 /* ============================================================
-   核心：从播放页 HTML 中提取真正的 m3u8
+   从播放页 HTML 中提取真正的 m3u8（用于直链情况）
    ============================================================ */
 function extractVideoUrl(text){
   if(!text) return '';
-
   let s = String(text)
     .replace(/\\\//g, '/')
     .replace(/&amp;/g, '&')
@@ -558,35 +463,11 @@ function extractVideoUrl(text){
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>');
 
-  const normalize = (u) => {
-    if(!u) return u;
-    try {
-      return new URL(u).href;
-    } catch(e) {
-      return u.replace(/[\u4e00-\u9fa5\s]/g, c => encodeURIComponent(c));
-    }
-  };
-
   const urlParamRe = /[?&]url=(https?:\/\/[^\s"'<>&]+?\.(?:m3u8|mp4|flv)[^\s"'<>&]*)/gi;
   let m;
   while((m = urlParamRe.exec(s)) !== null){
     const u = m[1];
-    if(MEDIA_RE.test(u)) return normalize(u);
-  }
-
-  const iframeRe = /<iframe\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi;
-  while((m = iframeRe.exec(s)) !== null){
-    const src = m[1];
-
-    const urlMatch = src.match(/[?&]url=([^"']+)/i);
-    if(urlMatch){
-      const u = urlMatch[1];
-      if(MEDIA_RE.test(u)) return normalize(u);
-    }
-    if(MEDIA_RE.test(src)) return normalize(src);
-
-    const mm = src.match(/https?:\/\/[^\s"'<>\\]+?\.(m3u8|mp4|flv)[^\s"'<>\\]*/i);
-    if(mm) return normalize(mm[0]);
+    if(MEDIA_RE.test(u)) return u;
   }
 
   const patterns = [
@@ -596,68 +477,71 @@ function extractVideoUrl(text){
   ];
   for(let i=0;i<patterns.length;i++){
     const mm = s.match(patterns[i]);
-    if(mm) return normalize(mm[0]);
+    if(mm) return mm[0];
   }
   return '';
 }
 
 /* ============================================================
-   从播放页 HTML 里提取 iframe 的 src（如奈飞的 ec.php）
+   ★ 核心：从播放页 HTML 中提取 ec.php 播放器 iframe
+   ① 优先找 ec.php（排除 union.maccms 等广告 iframe）
+   ② 没有的话从 player_aaaa 里拼 ec.php
    ============================================================ */
-function extractIframeSrc(html){
+function extractPlayerIframe(html){
   if(!html) return '';
+
   const s = String(html).replace(/&amp;/g, '&');
+
+  // ① 扫描所有 iframe，优先选带 ec.php 的
   const re = /<iframe\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
   let m;
+  const candidates = [];
   while((m = re.exec(s)) !== null){
     let src = m[1].replace(/&quot;/g, '"').trim();
     if(src.startsWith('//')) src = 'https:' + src;
-    if(/^https?:/i.test(src)) return src;
+    if(/^https?:/i.test(src)) candidates.push(src);
   }
+  // 优先 ec.php
+  for(let i = 0; i < candidates.length; i++){
+    if(/ec\.php/i.test(candidates[i])) return candidates[i];
+  }
+  // 其次 netflixgc 相关
+  for(let i = 0; i < candidates.length; i++){
+    if(/netflixgc/i.test(candidates[i])) return candidates[i];
+  }
+  // 排除已知广告后返回第一个
+  for(let i = 0; i < candidates.length; i++){
+    if(/union\.maccms|prestrain|ads?|advert/i.test(candidates[i])) continue;
+    return candidates[i];
+  }
+
+  // ② 从 player_aaaa 拼 ec.php
+  const pm = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/);
+  if(pm){
+    try {
+      const obj = JSON.parse(pm[1]);
+      if(obj && obj.url){
+        // base64 解码
+        let decoded = '';
+        try { decoded = atob(obj.url); } catch(e){}
+        // 二次 URL 解码
+        try { decoded = decodeURIComponent(decoded); } catch(e){}
+
+        // 用解密后的明文（NBY-... 形式）拼 ec.php
+        if(decoded && /^NBY-/i.test(decoded)){
+          return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
+        }
+        // 兜底：用原始 base64 值
+        return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + obj.url;
+      }
+    } catch(e){}
+  }
+
   return '';
 }
 
 /* ============================================================
-   ★ 关键：从 player_aaaa 变量里拼出 ec.php 的 iframe 地址
-   ★ 奈飞播放页的原始 HTML 里没有 iframe，只有 player_aaaa 变量
-   ★ 变量里的 url 经过 base64 + URL 编码，解码后得到加密 token
-   ★ 拼成 https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=<token>
-   ============================================================ */
-function extractIframeFromPlayerData(html){
-  if(!html) return '';
-
-  const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/);
-  if(!m) return '';
-
-  let obj;
-  try {
-    obj = JSON.parse(m[1]);
-  } catch(e){
-    return '';
-  }
-  if(!obj || !obj.url) return '';
-
-  // base64 解码
-  let decoded = '';
-  try {
-    decoded = atob(obj.url);
-  } catch(e){
-    return '';
-  }
-
-  // 再 URL 解码
-  try {
-    decoded = decodeURIComponent(decoded);
-  } catch(e){}
-
-  // decoded 形如：NBY-XMYAES49d5986f...|af3bd38ca...
-  // 拼 ec.php（域名和 code 从奈飞播放器结构推断，是固定值）
-  const ecUrl = 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
-  return ecUrl;
-}
-
-/* ============================================================
-   HLS 播放
+   HLS 播放（仅用于直链情况）
    ============================================================ */
 function destroyHls(){
   const video = document.getElementById('playerVideo');
@@ -697,14 +581,11 @@ function startHlsPlayer(videoUrl){
       fragLoadingTimeOut: 20000,
       fragLoadingMaxRetry: 3,
     });
-
     hlsInstance.loadSource(playSrc);
     hlsInstance.attachMedia(video);
-
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function(){
       video.play().catch(function(e){ console.log('自动播放被拦截:', e); });
     });
-
     hlsInstance.on(Hls.Events.ERROR, function(event, data){
       if(!data || !data.fatal) return;
       switch(data.type){
@@ -733,8 +614,10 @@ function startHlsPlayer(videoUrl){
 }
 
 /* ============================================================
-   用 iframe 播放（用于加密 token 的站点，如奈飞的 ec.php）
-   直连（不走代理），让 ec.php 自己执行解密逻辑
+   用 iframe 播放（让 ec.php 自己的播放器播放）
+   - 走代理 + iframe=1 去掉 X-Frame-Options
+   - 走代理时 ec.php 里的相对路径资源会失效，但 ec.php 的 JS 都是绝对路径，
+     所以没问题
    ============================================================ */
 function playWithIframe(iframeSrc){
   if(!iframeSrc) return;
@@ -756,7 +639,9 @@ function playWithIframe(iframeSrc){
 
   container.style.display = 'block';
   iframe.style.display = 'block';
-  iframe.src = iframeSrc;
+
+  // 走代理 + iframe=1，让 proxy.js 去掉 X-Frame-Options / CSP
+  iframe.src = CONFIG.relay + encodeURIComponent(iframeSrc) + '&iframe=1';
 }
 
 /* ============================================================
@@ -768,25 +653,15 @@ async function fetchViaRelay(url, opts, timeout){
   const target = CONFIG.relay + encodeURIComponent(url);
   const options = opts || {};
   const headers = options.headers || {};
-
-  if (lastReceivedCookie) {
-    headers['x-target-cookie'] = lastReceivedCookie;
-  }
+  if (lastReceivedCookie) headers['x-target-cookie'] = lastReceivedCookie;
   options.headers = headers;
-
   const r = await fetchWithTimeout(target, options, timeout);
-
   const setCookie = r.headers.get('x-set-cookie');
   if (setCookie) {
     const m = setCookie.match(/cdndefend_js_cookie=[^;]+/);
-    if (m) {
-      lastReceivedCookie = m[0];
-    }
+    if (m) lastReceivedCookie = m[0];
   }
-
-  if(!r.ok) {
-    throw new Error('网络请求服务响应异常 (' + r.status + ')');
-  }
+  if(!r.ok) throw new Error('网络请求服务响应异常 (' + r.status + ')');
   return await r.text();
 }
 
@@ -794,11 +669,8 @@ async function requestSearch(keyword) {
   const src = SOURCES[currentSource];
   const postOpts = src.getSearchOptions(keyword);
   let txt = '';
-  try {
-    txt = await fetchViaRelay(src.getSearchUrl(keyword), postOpts);
-  } catch (e) {
-    txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
-  }
+  try { txt = await fetchViaRelay(src.getSearchUrl(keyword), postOpts); }
+  catch (e) { txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' }); }
   return txt;
 }
 
@@ -836,82 +708,54 @@ function createCardElement(it, index){
   const div = document.createElement('div');
   div.className = 'card';
   div.style.animationDelay = ((index % 12) * 40) + 'ms';
-
   const rankHtml = it.rank
     ? '<span class="rank ' + rankClass(it.rank) + '">' + escapeHtml(it.rank) + '</span>'
     : '';
-
   const coverHtml = it.cover
     ? '<img src="' + escapeAttr(it.cover) + '" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display=\'none\'">'
     : '';
-
   const subLine = it.year || it.region || it.status || '';
-
   div.innerHTML =
     '<div class="cover">' + rankHtml + coverHtml + '</div>' +
     '<div class="cardbody">' +
       '<h3 title="' + escapeAttr(it.name) + '">' + escapeHtml(it.name) + '</h3>' +
       '<div class="year">' + escapeHtml(subLine) + '</div>' +
     '</div>';
-
-  div.addEventListener('animationend', function(){
-    div.classList.add('animated');
-  }, { once:true });
-
-  div.addEventListener('click', function(){
-    openDetail(it);
-  });
-
+  div.addEventListener('animationend', function(){ div.classList.add('animated'); }, { once:true });
+  div.addEventListener('click', function(){ openDetail(it); });
   return div;
 }
 
 function renderCards(list, keyword){
-  if(!list || !list.length){
-    renderEmpty('没有找到相关影片', keyword);
-    return;
-  }
-
+  if(!list || !list.length){ renderEmpty('没有找到相关影片', keyword); return; }
   const contentBox = $('#content');
   contentBox.innerHTML = '<div class="grid"></div><div class="pagination-box" id="paginationBox"></div>';
   const grid = contentBox.querySelector('.grid');
-
-  list.forEach((it, i) => {
-    grid.appendChild(createCardElement(it, i));
-  });
-
+  list.forEach((it, i) => { grid.appendChild(createCardElement(it, i)); });
   $('#stat').style.display = 'block';
   $('#stat').innerHTML = '[' + SOURCES[currentSource].name + '] 共 <b>' +
     pageState.totalCount + '</b> 条结果 | 当前第 <b>' +
     pageState.currentPage + '</b> / <b>' + pageState.totalPages + '</b> 页';
-
   updatePaginationUI();
 }
 
 function updatePaginationUI(){
   const box = $('#paginationBox');
   if(!box) return;
-
   if(pageState.totalPages > 1 || pageState.hasPrev || pageState.hasMore){
     box.className = 'pagination-box';
     box.innerHTML =
       '<button class="btn-page" id="btnPrevPage"' + (pageState.hasPrev ? '' : ' disabled') + '>上一页</button>' +
       '<span class="page-info">第 <b>' + pageState.currentPage + '</b> / <b>' + pageState.totalPages + '</b> 页</span>' +
       '<button class="btn-page" id="btnNextPage"' + (pageState.hasMore ? '' : ' disabled') + '>下一页</button>';
-
     const prevBtn = $('#btnPrevPage');
     const nextBtn = $('#btnNextPage');
-
-    if(prevBtn && pageState.hasPrev){
-      prevBtn.onclick = function(){ gotoPage(pageState.prevUrl); };
-    }
-    if(nextBtn && pageState.hasMore){
-      nextBtn.onclick = function(){ gotoPage(pageState.nextUrl); };
-    }
+    if(prevBtn && pageState.hasPrev) prevBtn.onclick = function(){ gotoPage(pageState.prevUrl); };
+    if(nextBtn && pageState.hasMore) nextBtn.onclick = function(){ gotoPage(pageState.nextUrl); };
   }else{
     box.className = 'pagination-box';
     box.innerHTML = pageState.totalCount > 0
-      ? '<span style="font-size:12px;color:var(--sub)">— 已加载全部搜索结果 —</span>'
-      : '';
+      ? '<span style="font-size:12px;color:var(--sub)">— 已加载全部搜索结果 —</span>' : '';
   }
 }
 
@@ -968,10 +812,8 @@ function renderJiexiUI(){
       '</div>' +
     '</div>';
   $('#content').innerHTML = html;
-
   const kw = $('#kw').value.trim();
   if(kw) $('#jiexiInput').value = kw;
-
   const doJiexi = function(){
     const val = $('#jiexiInput').value.trim();
     if(!val){ toast('请输入内容'); return; }
@@ -982,13 +824,9 @@ function renderJiexiUI(){
     frame.src = line + encodeURIComponent(val);
     toast('已发起解析');
   };
-
   $('#btnJiexiDo').onclick = doJiexi;
   $('#jiexiInput').addEventListener('keydown', function(e){
-    if(e.key === 'Enter' || e.keyCode === 13){
-      e.preventDefault();
-      doJiexi();
-    }
+    if(e.key === 'Enter' || e.keyCode === 13){ e.preventDefault(); doJiexi(); }
   });
 }
 
@@ -998,21 +836,17 @@ function renderJiexiUI(){
 async function doSearch(keyword){
   keyword = (keyword || '').trim();
   if(!keyword){ toast('请输入关键词'); return; }
-
   pageState.currentKeyword = keyword;
   pageState.prevUrl = '';
   pageState.nextUrl = '';
   pageState.hasPrev = false;
   pageState.hasMore = false;
-
   const btn = $('#btnSearch');
   btn.classList.add('loading');
   renderSkeleton();
-
   try{
     const html = await requestSearch(keyword);
     const result = SOURCES[currentSource].parseList(html);
-
     pageState.prevUrl     = result.prevUrl || '';
     pageState.nextUrl     = result.nextUrl || '';
     pageState.hasPrev     = !!result.hasPrev;
@@ -1020,7 +854,6 @@ async function doSearch(keyword){
     pageState.currentPage = result.currentPage || 1;
     pageState.totalPages  = result.totalPages || 1;
     pageState.totalCount  = result.totalCount || result.list.length;
-
     renderCards(result.list, keyword);
   }catch(e){
     console.error(e);
@@ -1032,14 +865,11 @@ async function doSearch(keyword){
 
 async function gotoPage(targetUrl){
   if(!targetUrl) return;
-
   renderSkeleton();
   window.scrollTo({ top:0, behavior:'smooth' });
-
   try{
     const html = await requestUrl(targetUrl);
     const result = SOURCES[currentSource].parseList(html);
-
     pageState.prevUrl     = result.prevUrl || '';
     pageState.nextUrl     = result.nextUrl || '';
     pageState.hasPrev     = !!result.hasPrev;
@@ -1047,7 +877,6 @@ async function gotoPage(targetUrl){
     pageState.currentPage = result.currentPage || 1;
     pageState.totalPages  = result.totalPages || 1;
     pageState.totalCount  = result.totalCount || result.list.length;
-
     renderCards(result.list, pageState.currentKeyword);
   }catch(e){
     console.error(e);
@@ -1073,9 +902,7 @@ async function openDetail(item){
   if(detailOpen) return;
   detailOpen = true;
   currentDetailItem = item;
-
   try{ history.pushState({ detail:true }, ''); }catch(e){}
-
   $('#mask').classList.add('show');
   $('#dName').textContent = item.name + (item.year ? ' (' + item.year + ')' : '');
   $('#dMeta').textContent = item.rank ? ('信息/评分: ' + item.rank) : (item.region || '');
@@ -1085,22 +912,17 @@ async function openDetail(item){
   try{
     const html = await requestUrl(item.href);
     if(!detailOpen) return;
-
     const detailData = SOURCES[currentSource].parseDetail(html);
-
-    if(detailData.cover){
-      $('#dThumb').style.backgroundImage = "url('" + detailData.cover + "')";
-    }
+    if(detailData.cover) $('#dThumb').style.backgroundImage = "url('" + detailData.cover + "')";
 
     let body = '';
-
     body +=
       '<div class="playbox" id="playerBox" style="display:none;">' +
         '<div class="ptitle">▶ 在线播放器</div>' +
         '<div class="paddr ok" id="paddr">已载入播放节点</div>' +
         '<div class="player-container" id="playerContainer">' +
           '<video id="playerVideo" controls playsinline webkit-playsinline></video>' +
-          '<iframe id="playerIframe" allowfullscreen allow="autoplay; encrypted-media; fullscreen" scrolling="no" style="display:none;width:100%;height:100%;border:none;"></iframe>' +
+          '<iframe id="playerIframe" allowfullscreen allow="autoplay; encrypted-media; fullscreen" scrolling="no" referrerpolicy="no-referrer" style="display:none;width:100%;height:100%;border:none;"></iframe>' +
         '</div>' +
       '</div>';
 
@@ -1154,11 +976,9 @@ async function openDetail(item){
       detailData.playPageUrl ||
       (detailData.magnets && detailData.magnets.length) ||
       (detailData.playList && detailData.playList.length);
-
     if(!hasAnything){
       body += '<div class="empty" style="padding:30px 0"><p>该影片暂未解析到磁力或播放地址</p></div>';
     }
-
     $('#dBody').innerHTML = body;
 
     $$('#dBody .btn-copy[data-magnet]').forEach(function(b){
@@ -1168,13 +988,11 @@ async function openDetail(item){
         else toast('复制失败');
       };
     });
-
     $$('#dBody .btn-open[data-magnet]').forEach(function(b){
       b.onclick = function(){
         try{ location.href = b.dataset.magnet; }catch(e){ toast('无法打开磁力链接'); }
       };
     });
-
     $$('#dBody .btn-copy[data-url]').forEach(function(b){
       b.onclick = async function(){
         const ok = await copyText(b.dataset.url);
@@ -1184,11 +1002,9 @@ async function openDetail(item){
     });
 
     /* =========================================================
-       播放按钮：四段式
+       播放按钮：两段式
        ① 直链 → HLS
-       ② 播放页 → 提取 m3u8 → HLS
-       ③ 播放页 → 提取 iframe src（或从 player_aaaa 拼 ec.php） → iframe 播放
-       ④ 全部失败 → 提示
+       ② 播放页 → 提取 ec.php → iframe 播放（让 ec.php 自己的播放器播放）
        ========================================================= */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
@@ -1201,10 +1017,7 @@ async function openDetail(item){
         // ① 直链直接播放
         if(MEDIA_RE.test(rawUrl)){
           if(playerBox) playerBox.style.display = 'block';
-          if(paddr){
-            paddr.className = 'paddr ok';
-            paddr.textContent = rawUrl;
-          }
+          if(paddr){ paddr.className = 'paddr ok'; paddr.textContent = rawUrl; }
           startHlsPlayer(rawUrl);
           $('#dBody').scrollTo({ top:0, behavior:'smooth' });
           return;
@@ -1214,26 +1027,16 @@ async function openDetail(item){
         const old = b.textContent;
         b.textContent = '解析中…';
         b.disabled = true;
-        if(paddr){
-          paddr.className = 'paddr probing';
-          paddr.textContent = '正在解析播放地址…';
-        }
+        if(paddr){ paddr.className = 'paddr probing'; paddr.textContent = '正在解析播放地址…'; }
         if(playerBox) playerBox.style.display = 'none';
 
         let page = '';
-        let playUrl = '';
         let iframeUrl = '';
         try{
           page = await requestUrl(rawUrl);
-          playUrl = extractVideoUrl(page);
-          iframeUrl = extractIframeSrc(page);
-          if(!iframeUrl){
-            iframeUrl = extractIframeFromPlayerData(page);
-          }
-          console.log('[解析播放页]', rawUrl);
-          console.log('[播放页HTML长度]', page.length);
-          console.log('[提取到 m3u8]', playUrl);
-          console.log('[提取到 iframe]', iframeUrl);
+          iframeUrl = extractPlayerIframe(page);
+          console.log('[播放页]', rawUrl);
+          console.log('[ec.php iframe]', iframeUrl);
         }catch(e){
           console.warn('播放页请求失败:', e);
           toast('播放页请求失败：' + (e.message || '网络错误'));
@@ -1241,39 +1044,20 @@ async function openDetail(item){
 
         b.textContent = old;
         b.disabled = false;
-
         if(!detailOpen) return;
 
-        // ② m3u8 → HLS
-        if(playUrl){
-          if(playerBox) playerBox.style.display = 'block';
-          if(paddr){
-            paddr.className = 'paddr ok';
-            paddr.textContent = playUrl;
-          }
-          startHlsPlayer(playUrl);
-          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-          return;
-        }
-
-        // ③ iframe 播放（ec.php 直连）
+        // ② iframe 播放
         if(iframeUrl){
           if(playerBox) playerBox.style.display = 'block';
-          if(paddr){
-            paddr.className = 'paddr ok';
-            paddr.textContent = iframeUrl;
-          }
+          if(paddr){ paddr.className = 'paddr ok'; paddr.textContent = iframeUrl; }
           playWithIframe(iframeUrl);
           $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-          toast('已切换 iframe 模式播放');
+          toast('已启动播放器');
           return;
         }
 
-        // ④ 全部失败
-        if(paddr){
-          paddr.className = 'paddr fail';
-          paddr.textContent = '未解析到播放地址';
-        }
+        // 失败
+        if(paddr){ paddr.className = 'paddr fail'; paddr.textContent = '未解析到播放地址'; }
         toast('未解析到播放地址，无法播放');
       };
     });
@@ -1294,20 +1078,14 @@ async function probePlayUrl(playPageUrl){
   const paddr = $('#paddrProbe');
   const playBtns = $('#playBtns');
   if(!paddr || !playBtns) return;
-
   let finalUrl = playPageUrl;
   let detected = false;
-
   try{
     const html = await requestUrl(playPageUrl);
     const v = extractVideoUrl(html);
     if(v){ finalUrl = v; detected = true; }
-  }catch(e){
-    console.warn('探测失败：', e.message);
-  }
-
+  }catch(e){ console.warn('探测失败：', e.message); }
   if(!detailOpen) return;
-
   if(detected){
     paddr.className = 'paddr ok';
     paddr.textContent = finalUrl;
@@ -1316,12 +1094,9 @@ async function probePlayUrl(playPageUrl){
     paddr.className = 'paddr fail';
     paddr.textContent = '未探测到 m3u8/mp4，使用原始地址：' + finalUrl;
   }
-
   playBtns.style.display = 'flex';
-
   const copyBtn = playBtns.querySelector('.btn-play-copy');
   const openBtn = playBtns.querySelector('.btn-play-open');
-
   if(copyBtn){
     copyBtn.onclick = async function(){
       const ok = await copyText(finalUrl);
@@ -1329,7 +1104,6 @@ async function probePlayUrl(playPageUrl){
       else toast('复制失败');
     };
   }
-
   if(openBtn){
     openBtn.onclick = function(){
       $('#playerBox').style.display = 'block';
@@ -1344,20 +1118,15 @@ async function probePlayUrl(playPageUrl){
    事件初始化绑定
    ============================================================ */
 window.addEventListener('popstate', function(){
-  if(detailOpen){
-    detailOpen = false;
-    closeDetailUI();
-  }
+  if(detailOpen){ detailOpen = false; closeDetailUI(); }
 });
 
 $$('.src-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
     if(btn.classList.contains('active')) return;
-
     $$('.src-btn').forEach(function(b){ b.classList.remove('active'); });
     btn.classList.add('active');
     currentSource = btn.dataset.source;
-
     pageState.prevUrl = '';
     pageState.nextUrl = '';
     pageState.hasPrev = false;
@@ -1365,7 +1134,6 @@ $$('.src-btn').forEach(function(btn){
     pageState.currentPage = 1;
     pageState.totalPages = 1;
     pageState.totalCount = 0;
-
     if(currentSource === 'jiexi'){
       $('.searchrow').style.display = 'none';
       toast('已切换：视频解析');
@@ -1374,35 +1142,23 @@ $$('.src-btn').forEach(function(btn){
       $('.searchrow').style.display = 'flex';
       toast('已切换数据源：' + SOURCES[currentSource].name);
       const kw = $('#kw').value.trim();
-      if(kw){
-        doSearch(kw);
-      }else{
-        $('#content').innerHTML = '';
-        $('#stat').style.display = 'none';
-      }
+      if(kw) doSearch(kw);
+      else { $('#content').innerHTML = ''; $('#stat').style.display = 'none'; }
     }
   });
 });
 
 $('#btnSearch').onclick = function(){ doSearch($('#kw').value); };
-
 $('#kw').addEventListener('keydown', function(e){
-  if(e.key === 'Enter' || e.keyCode === 13){
-    e.preventDefault();
-    doSearch($('#kw').value);
-  }
+  if(e.key === 'Enter' || e.keyCode === 13){ e.preventDefault(); doSearch($('#kw').value); }
 });
-
 $('#btnClose').onclick = closeDetail;
-
 $('#mask').addEventListener('click', function(e){
   if(e.target.id === 'mask') closeDetail();
 });
-
 document.addEventListener('keydown', function(e){
   if(e.key === 'Escape') closeDetail();
 });
-
 $('#kw').value = '';
 </script>
 </body>

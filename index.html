@@ -545,40 +545,6 @@ function escapeAttr(s){
 }
 
 /* ============================================================
-   ★ 智能解码：处理 %uXXXX + 多次 URL 解码
-   - 例：%u7B2C%30%31%u96C6 → 第01集
-   - 例：%68%74%74%70%73 → https
-   ============================================================ */
-function smartDecode(raw){
-  if(!raw) return '';
-  let s = String(raw);
-
-  // 1. 处理 %uXXXX（JS escape 格式）
-  s = s.replace(/%u([0-9a-fA-F]{4})/g, function(_, hex){
-    return String.fromCharCode(parseInt(hex, 16));
-  });
-
-  // 2. 标准 URL 解码，最多 2 次
-  for(let i = 0; i < 2; i++){
-    try {
-      const d = decodeURIComponent(s);
-      if(d === s) break;
-      s = d;
-    } catch(e){ break; }
-  }
-  return s;
-}
-
-/* 规范化 URL：中文/空格编码成 %xx */
-function normalizeUrl(u){
-  if(!u) return u;
-  try { return new URL(u).href; }
-  catch(e) {
-    return u.replace(/[\u4e00-\u9fa5\s]/g, c => encodeURIComponent(c));
-  }
-}
-
-/* ============================================================
    核心：从播放页 HTML 中提取真正的 m3u8
    ============================================================ */
 function extractVideoUrl(text){
@@ -592,35 +558,30 @@ function extractVideoUrl(text){
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>');
 
-  const normalize = normalizeUrl;
-
-  // ★ 1. 优先：从 url= 参数里尝试解码（处理 %uXXXX 和 URL 编码）
-  //    例：url=%68%74%74%70%73%3A%2F%2F... → https://...
-  //    例：url=...%u7B2C%30%31%u96C6... → ...第01集...
-  const urlAnyRe = /[?&]url=([^&\s"'<>]+)/gi;
-  let m;
-  while((m = urlAnyRe.exec(s)) !== null){
-    const decoded = smartDecode(m[1]);
-    if(/^https?:\/\//i.test(decoded) && MEDIA_RE.test(decoded)){
-      return normalize(decoded);
+  const normalize = (u) => {
+    if(!u) return u;
+    try {
+      return new URL(u).href;
+    } catch(e) {
+      return u.replace(/[\u4e00-\u9fa5\s]/g, c => encodeURIComponent(c));
     }
-  }
+  };
 
-  // 2. url= 里直接是 http 开头的明文媒体地址
   const urlParamRe = /[?&]url=(https?:\/\/[^\s"'<>&]+?\.(?:m3u8|mp4|flv)[^\s"'<>&]*)/gi;
+  let m;
   while((m = urlParamRe.exec(s)) !== null){
     const u = m[1];
     if(MEDIA_RE.test(u)) return normalize(u);
   }
 
-  // 3. iframe 的 src 提取
   const iframeRe = /<iframe\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi;
   while((m = iframeRe.exec(s)) !== null){
     const src = m[1];
+
     const urlMatch = src.match(/[?&]url=([^"']+)/i);
     if(urlMatch){
-      const decoded = smartDecode(urlMatch[1]);
-      if(MEDIA_RE.test(decoded)) return normalize(decoded);
+      const u = urlMatch[1];
+      if(MEDIA_RE.test(u)) return normalize(u);
     }
     if(MEDIA_RE.test(src)) return normalize(src);
 
@@ -628,7 +589,6 @@ function extractVideoUrl(text){
     if(mm) return normalize(mm[0]);
   }
 
-  // 4. 兜底：整个 HTML 里搜媒体地址
   const patterns = [
     /https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i,
     /https?:\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
@@ -658,10 +618,10 @@ function extractIframeSrc(html){
 }
 
 /* ============================================================
-   ★ 从 player_aaaa 变量里拼出 ec.php 的 iframe 地址
-   - 奈飞播放页原始 HTML 里没有 iframe，只有 player_aaaa 变量
-   - 变量里的 url 经过 base64 + URL 编码，解码后得到加密 token
-   - 拼成 https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=<token>
+   ★ 关键：从 player_aaaa 变量里拼出 ec.php 的 iframe 地址
+   ★ 奈飞播放页的原始 HTML 里没有 iframe，只有 player_aaaa 变量
+   ★ 变量里的 url 经过 base64 + URL 编码，解码后得到加密 token
+   ★ 拼成 https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=<token>
    ============================================================ */
 function extractIframeFromPlayerData(html){
   if(!html) return '';
@@ -685,54 +645,15 @@ function extractIframeFromPlayerData(html){
     return '';
   }
 
-  // ★ 用 smartDecode 处理 %uXXXX + URL 解码
-  decoded = smartDecode(decoded);
+  // 再 URL 解码
+  try {
+    decoded = decodeURIComponent(decoded);
+  } catch(e){}
 
-  // 如果解码后直接是明文 m3u8，让上层 extractVideoUrl 处理
-  if(/^https?:\/\//i.test(decoded) && MEDIA_RE.test(decoded)){
-    return '';
-  }
-
-  // 是加密 token → 拼 ec.php
-  return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + obj.url;
-}
-
-/* ============================================================
-   ★ 从 player_aaaa 里直接解出明文 m3u8
-   ============================================================ */
-function extractM3U8FromPlayerData(html){
-  if(!html) return '';
-  const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/);
-  if(!m) return '';
-  let obj;
-  try { obj = JSON.parse(m[1]); } catch(e){ return ''; }
-  if(!obj || !obj.url) return '';
-
-  let decoded = '';
-  try { decoded = atob(obj.url); } catch(e){ return ''; }
-  decoded = smartDecode(decoded);
-
-  if(/^https?:\/\//i.test(decoded) && MEDIA_RE.test(decoded)){
-    return normalizeUrl(decoded);
-  }
-  return '';
-}
-
-/* ============================================================
-   ★ 从 ec.php 的 url= 参数里解出明文 m3u8（URL 编码的情况）
-   - 例：ec.php?...&url=%68%74%74%70%73%3A%2F%2F...index.m3u8
-   - 例：ec.php?...&url=...%u7B2C%30%31%u96C6...index.m3u8
-   - 加密 token（NBY-XMYAES...）解不出，返回空
-   ============================================================ */
-function extractM3U8FromIframeUrl(iframeUrl){
-  if(!iframeUrl) return '';
-  const m = iframeUrl.match(/[?&]url=([^&\s"'<>]+)/i);
-  if(!m) return '';
-  const decoded = smartDecode(m[1]);
-  if(/^https?:\/\//i.test(decoded) && MEDIA_RE.test(decoded)){
-    return normalizeUrl(decoded);
-  }
-  return '';
+  // decoded 形如：NBY-XMYAES49d5986f...|af3bd38ca...
+  // 拼 ec.php（域名和 code 从奈飞播放器结构推断，是固定值）
+  const ecUrl = 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
+  return ecUrl;
 }
 
 /* ============================================================
@@ -813,6 +734,7 @@ function startHlsPlayer(videoUrl){
 
 /* ============================================================
    用 iframe 播放（用于加密 token 的站点，如奈飞的 ec.php）
+   直连（不走代理），让 ec.php 自己执行解密逻辑
    ============================================================ */
 function playWithIframe(iframeSrc){
   if(!iframeSrc) return;
@@ -1262,12 +1184,11 @@ async function openDetail(item){
     });
 
     /* =========================================================
-       播放按钮：五段式
+       播放按钮：四段式
        ① 直链 → HLS
-       ② 播放页 → extractVideoUrl 拿到 m3u8 → HLS
-       ③ 播放页 → player_aaaa 里拿到明文 m3u8 → HLS
-       ④ iframeUrl → 尝试解出 url= 里的明文 m3u8 → HLS；解不出（加密 token）→ iframe 播放
-       ⑤ 全部失败 → 提示
+       ② 播放页 → 提取 m3u8 → HLS
+       ③ 播放页 → 提取 iframe src（或从 player_aaaa 拼 ec.php） → iframe 播放
+       ④ 全部失败 → 提示
        ========================================================= */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
@@ -1304,20 +1225,15 @@ async function openDetail(item){
         let iframeUrl = '';
         try{
           page = await requestUrl(rawUrl);
-
-          // ② 常规提取 m3u8
           playUrl = extractVideoUrl(page);
-
-          // ③ player_aaaa 里可能有明文 m3u8
-          if(!playUrl) playUrl = extractM3U8FromPlayerData(page);
-
-          // ④ 提取 iframe（或从 player_aaaa 拼 ec.php）
           iframeUrl = extractIframeSrc(page);
-          if(!iframeUrl) iframeUrl = extractIframeFromPlayerData(page);
-
-          console.log('[播放页]', rawUrl);
-          console.log('[m3u8]', playUrl);
-          console.log('[iframe]', iframeUrl);
+          if(!iframeUrl){
+            iframeUrl = extractIframeFromPlayerData(page);
+          }
+          console.log('[解析播放页]', rawUrl);
+          console.log('[播放页HTML长度]', page.length);
+          console.log('[提取到 m3u8]', playUrl);
+          console.log('[提取到 iframe]', iframeUrl);
         }catch(e){
           console.warn('播放页请求失败:', e);
           toast('播放页请求失败：' + (e.message || '网络错误'));
@@ -1328,7 +1244,7 @@ async function openDetail(item){
 
         if(!detailOpen) return;
 
-        // ②③ m3u8 → HLS
+        // ② m3u8 → HLS
         if(playUrl){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
@@ -1340,23 +1256,8 @@ async function openDetail(item){
           return;
         }
 
-        // ④ iframeUrl 处理
+        // ③ iframe 播放（ec.php 直连）
         if(iframeUrl){
-          // ④-1 先看 url= 里能不能解出明文 m3u8
-          const m3u8FromIframe = extractM3U8FromIframeUrl(iframeUrl);
-          if(m3u8FromIframe){
-            console.log('[从 iframe url= 解出 m3u8]', m3u8FromIframe);
-            if(playerBox) playerBox.style.display = 'block';
-            if(paddr){
-              paddr.className = 'paddr ok';
-              paddr.textContent = m3u8FromIframe;
-            }
-            startHlsPlayer(m3u8FromIframe);
-            $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-            return;
-          }
-
-          // ④-2 是加密 token → iframe 播放
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
             paddr.className = 'paddr ok';
@@ -1368,7 +1269,7 @@ async function openDetail(item){
           return;
         }
 
-        // ⑤ 全部失败
+        // ④ 全部失败
         if(paddr){
           paddr.className = 'paddr fail';
           paddr.textContent = '未解析到播放地址';

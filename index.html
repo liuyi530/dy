@@ -328,7 +328,7 @@ const SOURCES = {
     }
   },
 
-  /* ------------------------ 毒舌(dushe3) ------------------------ */
+  /* ------------------------ 毒舌 ------------------------ */
   dushe3: {
     name: '毒舌',
     base: 'https://www.dushe3.app',
@@ -351,18 +351,18 @@ const SOURCES = {
     },
 
     getSearchUrl: function(kw, token){
-      const tVal = token || '';
-      let tEncoded = tVal.includes('%') ? tVal : encodeURIComponent(tVal);
+      if (!token) return this.base + '/search?k=' + encodeURIComponent(kw);
+      let tEncoded = token.includes('%') ? token : encodeURIComponent(token);
       return this.base + '/search?t=' + tEncoded + '&k=' + encodeURIComponent(kw);
     },
 
-    getSearchUrlGet: function(kw){ return ''; },
+    getSearchUrlGet: function(kw){ 
+      return this.base + '/search?k=' + encodeURIComponent(kw); 
+    },
+    
     getSearchOptions: function(kw){
       return {
-        method: 'GET',
-        headers: {
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
-        }
+        method: 'GET'
       };
     },
 
@@ -385,9 +385,7 @@ const SOURCES = {
         if (imgEl){
           const src = imgEl.getAttribute('src') || '';
           const ori = imgEl.getAttribute('data-original') || imgEl.getAttribute('data-src') || '';
-          cover = (src && !src.includes('placeholder'))
-                    ? src
-                    : (ori && !ori.includes('placeholder') ? ori : '');
+          cover = (src && !src.includes('placeholder')) ? src : (ori && !ori.includes('placeholder') ? ori : '');
         }
 
         const tagEls = a.querySelectorAll('.tags span, .tag, .meta span');
@@ -396,11 +394,9 @@ const SOURCES = {
         if (tagEls.length >= 2) region = tagEls[1].textContent.trim();
         if (tagEls.length >= 3) type   = tagEls[2].textContent.trim();
 
-        const subParts = [year, region, type].filter(Boolean);
-
         list.push({
           name,
-          year: subParts.join(' / '),
+          year: [year, region, type].filter(Boolean).join(' / '),
           rank: '',
           region: region,
           status: '',
@@ -880,8 +876,7 @@ function renderJiexiUI(){
             '<option value="https://im1907.top/?jx=">直搜片名1</option>' +
             '<option value="https://am1907.top/?jx=">直搜片名2</option>' +
             '<option value="https://jx.xymp4.cc/?url=">闲鱼云解析</option>' +
-            '<option value="https://jx.77flv.cc/?url=">七哥解析1</option>' +
-            '<option value="https://jx.77flv.cc/?url=">七哥解析2</option>' +
+            '<option value="https://jx.77flv.cc/?url=">七哥解析</option>' +
             '<option value="https://jx.aidouer.net/?url=">爱豆</option>' +
           '</select>' +
         '</div>' +
@@ -1309,5 +1304,3 @@ document.addEventListener('keydown', function(e){
 
 $('#kw').value = '';
 </script>
-</body>
-</html>

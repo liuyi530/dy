@@ -69,7 +69,7 @@ let currentSource = 'cilixiong';
 let hlsInstance = null;
 let detailOpen = false;
 let currentDetailItem = null;
-let searchToken = 0;   // ★ 用于丢弃过期搜索请求
+let searchToken = 0;
 
 let pageState = {
   prevUrl: '',
@@ -461,7 +461,7 @@ const SOURCES = {
           if(!epName) epName = '正片';
 
           playList.push({
-            title: lineName + ' · ' + epName,
+            title: epName,
             url: abs(href, this.base)
           });
         });
@@ -624,8 +624,6 @@ function extractPlayerIframe(html){
         try { decoded = atob(obj.url); } catch(e){}
         try { decoded = decodeURIComponent(decoded); } catch(e){}
         if(!decoded) decoded = obj.url;
-        console.log('[player_aaaa 原始]', obj.url.slice(0, 60) + '...');
-        console.log('[player_aaaa 解码]', decoded.slice(0, 60) + '...');
         return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
       }
     } catch(e){}
@@ -634,23 +632,16 @@ function extractPlayerIframe(html){
   return '';
 }
 
-/* ============================================================
-   ★ 新增：从 iframe 的 url= 参数里解出明文 m3u8
-   ★ 处理这几种编码：%uXXXX（老式 escape）+ 多次 URL 编码 + 中文路径
-   ★ 解不出（加密 token）返回空字符串
-   ============================================================ */
 function extractM3U8FromIframeUrl(iframeUrl){
   if(!iframeUrl) return '';
   const m = iframeUrl.match(/[?&]url=([^&\s"'<>]+)/i);
   if(!m) return '';
   let decoded = m[1];
 
-  // 1) 处理 %uXXXX（老式 JS escape 编码，如 %u7B2C = 第）
   decoded = decoded.replace(/%u([0-9a-fA-F]{4})/g, function(_, hex){
     return String.fromCharCode(parseInt(hex, 16));
   });
 
-  // 2) 标准 URL 解码，最多 2 次
   for(let i = 0; i < 2; i++){
     try {
       const d = decodeURIComponent(decoded);
@@ -659,7 +650,6 @@ function extractM3U8FromIframeUrl(iframeUrl){
     } catch(e){ break; }
   }
 
-  // 3) 中文路径规范化（转成 %xx）
   try {
     decoded = new URL(decoded).href;
   } catch(e){
@@ -814,9 +804,6 @@ async function fetchViaRelay(url, opts, timeout){
   return await r.text();
 }
 
-/* ============================================================
-   ★ 补：requestUrl 函数（详情页 / 翻页 / 播放探测 用）
-   ============================================================ */
 async function requestUrl(url){
   return await fetchViaRelay(url, {});
 }
@@ -1014,11 +1001,9 @@ async function doSearch(keyword){
   keyword = (keyword || '').trim();
   if(!keyword){ toast('请输入关键词'); return; }
 
-  // ★ 记录本次搜索的 token 和 source，防止过期请求覆盖界面
   const myToken = ++searchToken;
   const mySource = currentSource;
 
-  // 视频解析源不支持搜索
   if(mySource === 'jiexi'){
     renderJiexiUI();
     return;
@@ -1044,7 +1029,6 @@ async function doSearch(keyword){
       txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
     }
 
-    // ★ 请求返回后检查是否过期
     if(myToken !== searchToken) return;
     if(mySource !== currentSource) return;
 
@@ -1099,6 +1083,8 @@ function closeDetailUI(){
   destroyHls();
   $('#mask').classList.remove('show');
   currentDetailItem = null;
+  window._currentEpIndex = -1;
+  window._currentPlayList = [];
 }
 
 function closeDetail(){
@@ -1108,10 +1094,15 @@ function closeDetail(){
   try{ history.back(); }catch(e){}
 }
 
+/* ============================================================
+   详情页
+   ============================================================ */
 async function openDetail(item){
   if(detailOpen) return;
   detailOpen = true;
   currentDetailItem = item;
+  window._currentEpIndex = -1;
+  window._currentPlayList = [];
 
   try{ history.pushState({ detail:true }, ''); }catch(e){}
 
@@ -1131,17 +1122,89 @@ async function openDetail(item){
       $('#dThumb').style.backgroundImage = "url('" + detailData.cover + "')";
     }
 
+    let playListHtml = '';
+    if (currentSource === 'netflix' && detailData.playList && detailData.playList.length) {
+      const groups = {};
+      detailData.playList.forEach((p, idx) => {
+        let lineName = '线路1';
+        if (p.title.includes('线路')) {
+          const match = p.title.match(/(线路\d+)/);
+          if (match) lineName = match[1];
+        } else {
+          const lineIndex = Math.floor(idx / 50) + 1;
+          lineName = '线路' + lineIndex;
+        }
+        
+        if (!groups[lineName]) {
+          groups[lineName] = [];
+        }
+        groups[lineName].push({ ...p, originalIndex: idx });
+      });
+
+      const lineKeys = Object.keys(groups);
+      playListHtml = lineKeys.map((lineName, lineIdx) => {
+        const eps = groups[lineName];
+        const isFirst = lineIdx === 0;
+        return `
+          <div class="line-group ${isFirst ? 'open' : ''}" data-line="${lineName}">
+            <div class="line-header">
+              <div class="line-title">
+                ${lineName}
+                <span class="line-count">共 ${eps.length} 集</span>
+              </div>
+              <span class="line-arrow">▼</span>
+            </div>
+            <div class="line-body">
+              ${eps.map((ep, epIdx) => {
+                let epTitle = ep.title.replace(/^线路\d+[\s·]*/, '').trim();
+                if (!epTitle) epTitle = '第' + (epIdx + 1) + '集';
+                return `
+                  <button class="ep-btn btn-play-ep" 
+                          data-url="${escapeAttr(ep.url)}"
+                          data-index="${ep.originalIndex}"
+                          data-line="${lineName}"
+                          data-title="${escapeAttr(epTitle)}">
+                    ${escapeHtml(epTitle)}
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else if (detailData.playList && detailData.playList.length) {
+      playListHtml = detailData.playList.map((p, i) => {
+        return `
+          <div class="episode-item" style="animation-delay:${i * 30}ms">
+            <div class="fname" title="${escapeAttr(p.title)}">${escapeHtml(p.title)}</div>
+            <div class="row">
+              <div class="btns">
+                <button class="btn btn-open btn-play-ep" data-url="${escapeAttr(p.url)}" data-index="${i}">立即播放</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
     let body = '';
 
-    body +=
-      '<div class="playbox" id="playerBox" style="display:none;">' +
-        '<div class="ptitle">▶ 在线播放器</div>' +
-        '<div class="paddr ok" id="paddr">已载入播放节点</div>' +
-        '<div class="player-container" id="playerContainer">' +
-          '<video id="playerVideo" controls playsinline webkit-playsinline></video>' +
-          '<iframe id="playerIframe" allowfullscreen allow="autoplay; encrypted-media; fullscreen" scrolling="no" referrerpolicy="no-referrer" style="display:none;width:100%;height:100%;border:none;"></iframe>' +
-        '</div>' +
-      '</div>';
+    body += `
+      <div class="playbox-sticky">
+        <div class="playbox" id="playerBox" style="display:none;">
+          <div class="ptitle">▶ 在线播放器 <span id="nowPlayingLabel" style="color:var(--sub);font-weight:400;font-size:12px;"></span></div>
+          <div class="paddr ok" id="paddr">已载入播放节点</div>
+          <div class="player-container" id="playerContainer">
+            <video id="playerVideo" controls playsinline webkit-playsinline></video>
+            <iframe id="playerIframe" allowfullscreen allow="autoplay; encrypted-media; fullscreen" scrolling="no" referrerpolicy="no-referrer" style="display:none;width:100%;height:100%;border:none;"></iframe>
+          </div>
+          <div class="ep-controls">
+            <button class="btn-ep" id="btnPrevEp">⏮ 上一集</button>
+            <button class="btn-ep" id="btnNextEp">下一集 ⏭</button>
+          </div>
+        </div>
+      </div>
+    `;
 
     if(detailData.playPageUrl){
       body +=
@@ -1155,22 +1218,9 @@ async function openDetail(item){
         '</div>';
     }
 
-    if(detailData.playList && detailData.playList.length){
-      body += '<div class="section-title">在线播放列表（' + detailData.playList.length + '）</div>';
-      body += detailData.playList.map(function(p, i){
-        const isDirect = MEDIA_RE.test(p.url);
-        return '<div class="episode-item" style="animation-delay:' + (i * 30) + 'ms">' +
-          '<div class="fname" title="' + escapeAttr(p.title) + '">' + escapeHtml(p.title) + '</div>' +
-          '<div class="row">' +
-            '<div class="btns">' +
-              '<button class="btn btn-copy" data-url="' + escapeAttr(p.url) + '">' +
-                (isDirect ? '复制 m3u8' : '复制链接') +
-              '</button>' +
-              '<button class="btn btn-open btn-play-ep" data-url="' + escapeAttr(p.url) + '">立即播放</button>' +
-            '</div>' +
-          '</div>' +
-        '</div>';
-      }).join('');
+    if (playListHtml) {
+      body += `<div class="section-title">在线播放列表（点击线路展开/折叠）</div>`;
+      body += playListHtml;
     }
 
     if(detailData.magnets && detailData.magnets.length){
@@ -1200,6 +1250,19 @@ async function openDetail(item){
 
     $('#dBody').innerHTML = body;
 
+    window._currentPlayList = detailData.playList || [];
+    
+    $$('.line-header').forEach(header => {
+      header.addEventListener('click', function() {
+        const group = this.closest('.line-group');
+        const isOpen = group.classList.contains('open');
+        $$('.line-group').forEach(g => g.classList.remove('open'));
+        if (!isOpen) {
+          group.classList.add('open');
+        }
+      });
+    });
+
     $$('#dBody .btn-copy[data-magnet]').forEach(function(b){
       b.onclick = async function(){
         const ok = await copyText(b.dataset.magnet);
@@ -1214,108 +1277,30 @@ async function openDetail(item){
       };
     });
 
-    $$('#dBody .btn-copy[data-url]').forEach(function(b){
-      b.onclick = async function(){
-        const ok = await copyText(b.dataset.url);
-        if(ok){ copyFeedback(b, '已复制 ✓'); toast('播放链接已复制'); }
-        else toast('复制失败');
-      };
-    });
-
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
         const rawUrl = b.dataset.url;
+        const epIndex = parseInt(b.dataset.index, 10);
+        const lineName = b.dataset.line || '线路';
+        const epTitle = b.dataset.title || '正片';
         if(!rawUrl) return;
 
-        const playerBox = $('#playerBox');
-        const paddr = $('#paddr');
+        $$('.ep-btn').forEach(btn => btn.classList.remove('active'));
+        b.classList.add('active');
 
-        if(MEDIA_RE.test(rawUrl)){
-          if(playerBox) playerBox.style.display = 'block';
-          if(paddr){
-            paddr.className = 'paddr ok';
-            paddr.textContent = rawUrl;
-          }
-          startHlsPlayer(rawUrl);
-          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-          return;
+        window._currentEpIndex = epIndex;
+
+        const nowPlayingLabel = $('#nowPlayingLabel');
+        if(nowPlayingLabel) {
+          nowPlayingLabel.textContent = `[${lineName}] ${epTitle}`;
         }
 
-        const old = b.textContent;
-        b.textContent = '解析中…';
-        b.disabled = true;
-        if(paddr){
-          paddr.className = 'paddr probing';
-          paddr.textContent = '正在解析播放地址…';
-        }
-        if(playerBox) playerBox.style.display = 'none';
-
-        let page = '';
-        let iframeUrl = '';
-        let playUrl = '';
-        try{
-          page = await requestUrl(rawUrl);
-          iframeUrl = extractPlayerIframe(page);
-          if(!iframeUrl) playUrl = extractVideoUrl(page);
-          console.log('[播放页]', rawUrl);
-          console.log('[iframe]', iframeUrl);
-          console.log('[m3u8 兜底]', playUrl);
-        }catch(e){
-          console.warn('播放页请求失败:', e);
-          toast('播放页请求失败：' + (e.message || '网络错误'));
-        }
-
-        b.textContent = old;
-        b.disabled = false;
-
-        if(!detailOpen) return;
-
-        // ★ 新增：针对 %uXXXX + URL 编码那种明文 m3u8，优先自己解出来播放
-        if(iframeUrl){
-          const m3u8FromIframe = extractM3U8FromIframeUrl(iframeUrl);
-          if(m3u8FromIframe){
-            console.log('[从 iframe url= 解出 m3u8]', m3u8FromIframe);
-            if(playerBox) playerBox.style.display = 'block';
-            if(paddr){
-              paddr.className = 'paddr ok';
-              paddr.textContent = m3u8FromIframe;
-            }
-            startHlsPlayer(m3u8FromIframe);
-            $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-            return;
-          }
-        }
-
-        if(iframeUrl){
-          if(playerBox) playerBox.style.display = 'block';
-          if(paddr){
-            paddr.className = 'paddr ok';
-            paddr.textContent = iframeUrl;
-          }
-          playWithIframe(iframeUrl);
-          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-          toast('已启动播放器');
-          return;
-        }
-
-        if(playUrl){
-          if(playerBox) playerBox.style.display = 'block';
-          if(paddr){
-            paddr.className = 'paddr ok';
-            paddr.textContent = playUrl;
-          }
-          startHlsPlayer(playUrl);
-          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-          return;
-        }
-
-        if(paddr){
-          paddr.className = 'paddr fail';
-          paddr.textContent = '未解析到播放地址';
-        }
-        toast('未解析到播放地址，无法播放');
+        await playEpisode(rawUrl, epIndex, lineName, epTitle);
       };
     });
+
+    $('#btnPrevEp').onclick = function() { playAdjacent(-1); };
+    $('#btnNextEp').onclick = function() { playAdjacent(1); };
 
     if(detailData.playPageUrl){
       probePlayUrl(detailData.playPageUrl);
@@ -1327,6 +1312,144 @@ async function openDetail(item){
     $('#dBody').innerHTML = '<div class="empty" style="padding:30px 0">' +
       '<p>加载失败：' + escapeHtml(e.message || '未知错误') + '</p></div>';
   }
+}
+
+/* 播放单集 */
+async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
+    const playerBox = $('#playerBox');
+    const paddr = $('#paddr');
+
+    const updateEpBtns = () => {
+        const total = window._currentPlayList.length;
+        const prevBtn = $('#btnPrevEp');
+        const nextBtn = $('#btnNextEp');
+        if (prevBtn) prevBtn.disabled = (epIndex <= 0);
+        if (nextBtn) nextBtn.disabled = (epIndex >= total - 1);
+    };
+    updateEpBtns();
+
+    if (MEDIA_RE.test(rawUrl)) {
+        if (playerBox) playerBox.style.display = 'block';
+        if (paddr) {
+            paddr.className = 'paddr ok';
+            paddr.textContent = rawUrl;
+        }
+        startHlsPlayer(rawUrl);
+        $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+    }
+
+    if (playerBox) playerBox.style.display = 'none';
+    if (paddr) {
+        paddr.className = 'paddr probing';
+        paddr.textContent = '正在解析播放地址…';
+    }
+
+    let page = '';
+    let iframeUrl = '';
+    let playUrl = '';
+    try {
+        page = await requestUrl(rawUrl);
+        iframeUrl = extractPlayerIframe(page);
+        if (!iframeUrl) playUrl = extractVideoUrl(page);
+    } catch (e) {
+        console.warn('播放页请求失败:', e);
+        toast('播放页请求失败：' + (e.message || '网络错误'));
+    }
+
+    if (!detailOpen) return;
+
+    if (iframeUrl) {
+        const m3u8FromIframe = extractM3U8FromIframeUrl(iframeUrl);
+        if (m3u8FromIframe) {
+            if (playerBox) playerBox.style.display = 'block';
+            if (paddr) {
+                paddr.className = 'paddr ok';
+                paddr.textContent = m3u8FromIframe;
+            }
+            startHlsPlayer(m3u8FromIframe);
+            $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+            return;
+        }
+    }
+
+    if (iframeUrl) {
+        if (playerBox) playerBox.style.display = 'block';
+        if (paddr) {
+            paddr.className = 'paddr ok';
+            paddr.textContent = iframeUrl;
+        }
+        playWithIframe(iframeUrl);
+        $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+        toast('已启动播放器');
+        return;
+    }
+
+    if (playUrl) {
+        if (playerBox) playerBox.style.display = 'block';
+        if (paddr) {
+            paddr.className = 'paddr ok';
+            paddr.textContent = playUrl;
+        }
+        startHlsPlayer(playUrl);
+        $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+    }
+
+    if (paddr) {
+        paddr.className = 'paddr fail';
+        paddr.textContent = '未解析到播放地址';
+    }
+    toast('未解析到播放地址，无法播放');
+}
+
+/* 上下集 */
+async function playAdjacent(delta) {
+    const list = window._currentPlayList;
+    if (!list || list.length === 0) return;
+    
+    let newIndex = window._currentEpIndex + delta;
+    if (newIndex < 0 || newIndex >= list.length) {
+        toast(delta < 0 ? '已经是第一集了' : '已经是最后一集了');
+        return;
+    }
+
+    const p = list[newIndex];
+    let lineName = '线路';
+    let epTitle = p.title;
+    if (p.title.includes('线路')) {
+        const match = p.title.match(/(线路\d+)/);
+        if (match) {
+            lineName = match[1];
+            epTitle = p.title.replace(/^线路\d+[\s·]*/, '').trim();
+        }
+    }
+
+    $$('.ep-btn').forEach(btn => {
+        if (parseInt(btn.dataset.index, 10) === newIndex) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    const nowPlayingLabel = $('#nowPlayingLabel');
+    if(nowPlayingLabel) {
+        nowPlayingLabel.textContent = `[${lineName}] ${epTitle}`;
+    }
+
+    window._currentEpIndex = newIndex;
+
+    const targetBtn = document.querySelector(`.ep-btn[data-index="${newIndex}"]`);
+    if (targetBtn) {
+        const group = targetBtn.closest('.line-group');
+        if (group && !group.classList.contains('open')) {
+            $$('.line-group').forEach(g => g.classList.remove('open'));
+            group.classList.add('open');
+        }
+    }
+
+    await playEpisode(p.url, newIndex, lineName, epTitle);
 }
 
 async function probePlayUrl(playPageUrl){
@@ -1380,30 +1503,24 @@ async function probePlayUrl(playPageUrl){
 }
 
 /* ============================================================
-   ★ 片源下拉列表：切换 + 展开/收起
-   ★ 修复：jiexi 源特殊处理，不再读 SOURCES['jiexi'].name 报错
+   片源切换
    ============================================================ */
 function switchSource(src){
   if(src === currentSource) return;
 
   currentSource = src;
-
-  // ★ 立即作废所有 pending 的搜索请求
   searchToken++;
 
-  // 更新菜单项 active
   $$('.src-item').forEach(function(b){
     b.classList.toggle('active', b.dataset.source === src);
   });
 
-  // ★ 更新按钮名字（jiexi 特殊处理）
   if(src === 'jiexi'){
     $('#srcName').textContent = '视频解析';
   } else {
     $('#srcName').textContent = SOURCES[src].name;
   }
 
-  // 重置分页状态
   pageState.prevUrl = '';
   pageState.nextUrl = '';
   pageState.hasPrev = false;
@@ -1447,9 +1564,6 @@ document.addEventListener('click', function(e){
   if(dd && !dd.contains(e.target)) dd.classList.remove('open');
 });
 
-/* ============================================================
-   事件初始化绑定
-   ============================================================ */
 window.addEventListener('popstate', function(){
   if(detailOpen){
     detailOpen = false;

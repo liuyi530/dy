@@ -29,26 +29,27 @@ export async function onRequest(context) {
     });
   }
 
-  // 前端可指定 Referer（可选），默认用目标域
-  const referer = request.headers.get('x-target-referer') || (targetOrigin + '/');
-
-  // 判断是不是媒体资源（m3u8 / ts / mp4 / flv / key）
-  const isMedia = /\.(m3u8|ts|mp4|flv|key)(\?|#|$)/i.test(targetUrl.pathname) ||
-                  /\.(m3u8|ts|mp4|flv|key)(\?|#|$)/i.test(target);
+  const pathLower = targetUrl.pathname.toLowerCase();
+  const isM3U8 = /\.m3u8(\?|#|$)/i.test(target) || /\.m3u8$/i.test(pathLower);
+  const isMedia = isM3U8 ||
+                  /\.(ts|mp4|flv|key|m4s|aac)(\?|#|$)/i.test(target) ||
+                  /\.(ts|mp4|flv|key|m4s|aac)$/i.test(pathLower);
 
   const reqHeaders = new Headers({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    'Referer': referer,
   });
 
   if (isMedia) {
+    // 媒体资源：*/* + empty
     reqHeaders.set('Accept', '*/*');
+    reqHeaders.set('Origin', targetOrigin);
+    reqHeaders.set('Referer', targetOrigin + '/');
     reqHeaders.set('Sec-Fetch-Dest', 'empty');
     reqHeaders.set('Sec-Fetch-Mode', 'cors');
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
-    reqHeaders.set('Origin', targetOrigin);
   } else {
+    // 页面资源：document
     reqHeaders.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
     reqHeaders.set('Cache-Control', 'no-cache');
     reqHeaders.set('Pragma', 'no-cache');
@@ -60,6 +61,7 @@ export async function onRequest(context) {
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
     reqHeaders.set('Sec-Fetch-User', '?1');
     reqHeaders.set('Upgrade-Insecure-Requests', '1');
+    reqHeaders.set('Referer', targetOrigin + '/');
   }
 
   const customCookie = request.headers.get('x-target-cookie') || '';
@@ -85,10 +87,10 @@ export async function onRequest(context) {
 
     const headers = new Headers(cors());
 
-    // ---------- 关键：m3u8 内容重写，让所有分片也走代理 ----------
-    const isM3U8 = /mpegurl/i.test(ct) || /\.m3u8(\?|#|$)/i.test(target);
+    // ---------- m3u8：重写内容，让分片也走代理 ----------
+    const respIsM3U8 = isM3U8 || /mpegurl/i.test(ct);
 
-    if (isM3U8) {
+    if (respIsM3U8) {
       let text = await resp.text();
       const baseUrl = target.substring(0, target.lastIndexOf('/') + 1);
 
@@ -101,13 +103,14 @@ export async function onRequest(context) {
 
       const rewrite = (raw) => {
         const abs = toAbs(raw);
+        if (abs.includes('/proxy?url=')) return abs;
         return '/proxy?url=' + encodeURIComponent(abs);
       };
 
       // EXT-X-KEY:URI="..."
       text = text.replace(/URI="([^"]+)"/g, (m, p1) => 'URI="' + rewrite(p1) + '"');
 
-      // 普通行（分片、子 m3u8、#EXT-X-MAP 等）
+      // 逐行处理，跳过 # 注释行和空行
       text = text.split('\n').map(line => {
         const t = line.trim();
         if (!t) return line;

@@ -35,13 +35,14 @@ export async function onRequest(context) {
                   /\.(ts|mp4|flv|key|m4s|aac)(\?|#|$)/i.test(target) ||
                   /\.(ts|mp4|flv|key|m4s|aac)$/i.test(pathLower);
 
+  const isIframeReq = u.searchParams.get('iframe') === '1';
+
   const reqHeaders = new Headers({
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
   });
 
   if (isMedia) {
-    // 媒体资源：*/* + empty
     reqHeaders.set('Accept', '*/*');
     reqHeaders.set('Origin', targetOrigin);
     reqHeaders.set('Referer', targetOrigin + '/');
@@ -49,7 +50,6 @@ export async function onRequest(context) {
     reqHeaders.set('Sec-Fetch-Mode', 'cors');
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
   } else {
-    // 页面资源：document
     reqHeaders.set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
     reqHeaders.set('Cache-Control', 'no-cache');
     reqHeaders.set('Pragma', 'no-cache');
@@ -107,10 +107,8 @@ export async function onRequest(context) {
         return '/proxy?url=' + encodeURIComponent(abs);
       };
 
-      // EXT-X-KEY:URI="..."
       text = text.replace(/URI="([^"]+)"/g, (m, p1) => 'URI="' + rewrite(p1) + '"');
 
-      // 逐行处理，跳过 # 注释行和空行
       text = text.split('\n').map(line => {
         const t = line.trim();
         if (!t) return line;
@@ -119,12 +117,22 @@ export async function onRequest(context) {
       }).join('\n');
 
       headers.set('Content-Type', 'application/vnd.apple.mpegurl');
+      headers.set('Cache-Control', 'no-store');
       return new Response(text, { status: resp.status, headers });
     }
 
     // ---------- 其他资源原样返回 ----------
     const body = await resp.arrayBuffer();
     if (ct) headers.set('Content-Type', ct);
+
+    // iframe 请求：去掉屏蔽头，允许被跨域嵌入
+    if (isIframeReq) {
+      // 注意：我们本来就没复制 resp 的 X-Frame-Options / CSP，
+      // 这里再确保一下不会因为 Response 默认头影响
+      headers.set('X-Frame-Options', 'ALLOWALL');
+      headers.set('Content-Security-Policy', "frame-ancestors *");
+      headers.set('Access-Control-Allow-Origin', ALLOW_ORIGIN);
+    }
 
     const setCookieHeader = resp.headers.get('set-cookie');
     if (setCookieHeader) {

@@ -18,7 +18,6 @@
     <div class="source-selector">
       <button class="src-btn active" data-source="cilixiong">磁力熊</button>
       <button class="src-btn" data-source="ffzy">非凡资源</button>
-      <button class="src-btn" data-source="dushe3">毒舌</button>
       <button class="src-btn" data-source="jiexi">视频解析</button>
     </div>
   </div>
@@ -326,147 +325,6 @@ const SOURCES = {
 
       return { cover, magnets: [], playPageUrl: '', playList };
     }
-  },
-
-  /* ------------------------ 毒舌 ------------------------ */
-  dushe3: {
-    name: '毒舌',
-    base: 'https://www.dushe3.app',
-
-    getHomeUrl: function(){
-      return this.base + '/';
-    },
-    parseToken: function(html){
-      if (!html) return '';
-      const matches = html.match(/t=([A-Za-z0-9+/=%]+)/g) || [];
-      for (let i = 0; i < matches.length; i++){
-        const v = matches[i].slice(2);
-        if (v && v.length > 6 && !v.includes('<') && !v.includes('>')) {
-          return v;
-        }
-      }
-      const directMatch = html.match(/\/search\?t=([A-Za-z0-9+/=%]+)/);
-      if (directMatch) return directMatch[1];
-      return '';
-    },
-
-    getSearchUrl: function(kw, token){
-      if (!token) return this.base + '/search?k=' + encodeURIComponent(kw);
-      let tEncoded = token.includes('%') ? token : encodeURIComponent(token);
-      return this.base + '/search?t=' + tEncoded + '&k=' + encodeURIComponent(kw);
-    },
-
-    getSearchUrlGet: function(kw){ 
-      return this.base + '/search?k=' + encodeURIComponent(kw); 
-    },
-    
-    getSearchOptions: function(kw){
-      return {
-        method: 'GET'
-      };
-    },
-
-    parseList: function(html){
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const list = [];
-      const seen = new Set();
-
-      doc.querySelectorAll('a.search-result-item, .search-item, .film-item, a[href*="/detail/"]').forEach(a => {
-        const href = a.getAttribute('href') || '';
-        if (!href || seen.has(href)) return;
-        seen.add(href);
-
-        const titleEl = a.querySelector('.title') || a.querySelector('.name') || a.querySelector('h3');
-        const name = titleEl ? titleEl.textContent.trim() : a.textContent.trim();
-        if (!name || name.length > 50) return;
-
-        let cover = '';
-        const imgEl = a.querySelector('img');
-        if (imgEl){
-          const src = imgEl.getAttribute('src') || '';
-          const ori = imgEl.getAttribute('data-original') || imgEl.getAttribute('data-src') || '';
-          cover = (src && !src.includes('placeholder')) ? src : (ori && !ori.includes('placeholder') ? ori : '');
-        }
-
-        const tagEls = a.querySelectorAll('.tags span, .tag, .meta span');
-        let year = '', region = '', type = '';
-        if (tagEls.length >= 1) year   = tagEls[0].textContent.trim();
-        if (tagEls.length >= 2) region = tagEls[1].textContent.trim();
-        if (tagEls.length >= 3) type   = tagEls[2].textContent.trim();
-
-        list.push({
-          name,
-          year: [year, region, type].filter(Boolean).join(' / '),
-          rank: '',
-          region: region,
-          status: '',
-          cover: abs(cover, this.base),
-          href: abs(href, this.base),
-        });
-      });
-
-      let nextUrl = '', hasMore = false;
-      const nextA = doc.querySelector('.pagenation-box a.page-item-next, a.next');
-      if (nextA){
-        const nhref = nextA.getAttribute('href') || '';
-        if (nhref && !nhref.includes('javascript:')){
-          nextUrl = abs(nhref, this.base);
-          hasMore = true;
-        }
-      }
-
-      return {
-        list,
-        prevUrl: '',
-        nextUrl,
-        hasPrev: false,
-        hasMore,
-        currentPage: 1,
-        totalPages: hasMore ? 2 : 1,
-        totalCount: list.length,
-      };
-    },
-
-    parseDetail: function(html){
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-
-      let cover = '';
-      const imgEl = doc.querySelector('.detail-pic img, .vod-img img, .pic img');
-      if (imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
-
-      const sources = [];
-      doc.querySelectorAll('.source-item').forEach(el => {
-        const labelEl = el.querySelector('.source-item-label');
-        const numEl   = el.querySelector('.source-item-num');
-        if (!labelEl) return;
-        sources.push({
-          name: labelEl.textContent.trim(),
-          count: numEl ? parseInt(numEl.textContent.trim(), 10) || 0 : 0,
-          active: el.classList.contains('source-item-active'),
-        });
-      });
-
-      const episodes = [];
-      doc.querySelectorAll('.episode-list .episode-item, .playlist a').forEach(a => {
-        const href = a.getAttribute('href') || '';
-        const spanEl = a.querySelector('span');
-        const title = spanEl ? spanEl.textContent.trim() : a.textContent.trim();
-        if (!href) return;
-        episodes.push({
-          title: title || ('第 ' + (episodes.length + 1) + ' 集'),
-          href: abs(href, this.base),
-        });
-      });
-
-      return {
-        cover,
-        magnets: [],
-        playPageUrl: '',
-        playList: [],
-        _sources: sources,
-        _episodes: episodes,
-      };
-    }
   }
 };
 
@@ -567,17 +425,6 @@ function extractVideoUrl(text){
       return u;
     }
   }
-  return '';
-}
-
-function extractM3u8FromPlayPage(html){
-  if(!html) return '';
-  const mPlayer = html.match(/"url"\s*:\s*"([^"]+\.m3u8[^"]*)"/i);
-  if(mPlayer) return mPlayer[1].replace(/\\\//g, '/');
-  const mSrc = html.match(/src\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i);
-  if(mSrc) return mSrc[1].replace(/\\\//g, '/');
-  const mAny = html.match(/https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i);
-  if(mAny) return mAny[0];
   return '';
 }
 
@@ -688,31 +535,6 @@ async function fetchViaRelay(url, opts, timeout){
 
 async function requestSearch(keyword) {
   const src = SOURCES[currentSource];
-
-  if (currentSource === 'dushe3') {
-    let homeHtml = '';
-    try {
-      homeHtml = await fetchViaRelay(src.getHomeUrl(), src.getSearchOptions());
-    } catch (err) {
-      console.warn('[dushe3] 访问首页遭遇异常:', err);
-    }
-
-    let token = src.parseToken(homeHtml);
-
-    const searchUrl = src.getSearchUrl(keyword, token);
-    let html = '';
-    try {
-      html = await fetchViaRelay(searchUrl, src.getSearchOptions());
-    } catch (e) {
-      console.warn('[dushe3] 带token搜索失败，尝试无token搜索:', e);
-      const fallbackUrl = src.base + '/search?k=' + encodeURIComponent(keyword);
-      html = await fetchViaRelay(fallbackUrl, src.getSearchOptions());
-    }
-
-    if (!html || html.length < 100) throw new Error('毒舌源站无响应，请重试');
-    return html;
-  }
-
   const postOpts = src.getSearchOptions(keyword);
   let txt = '';
   try {
@@ -724,8 +546,7 @@ async function requestSearch(keyword) {
 }
 
 async function requestUrl(url){
-  const opts = (currentSource === 'dushe3') ? SOURCES.dushe3.getSearchOptions() : {};
-  return await fetchViaRelay(url, opts);
+  return await fetchViaRelay(url, {});
 }
 
 /* ============================================================
@@ -1068,37 +889,10 @@ async function openDetail(item){
       }).join('');
     }
 
-    if(detailData._sources && detailData._sources.length){
-      body += '<div class="section-title">切换线路</div>';
-      body += '<div class="dushe-sources">';
-      detailData._sources.forEach((s, i) => {
-        body += '<button class="dushe-source-btn' + (s.active ? ' active' : '') +
-                '" data-idx="' + i + '">' +
-                '<span class="lbl">' + escapeHtml(s.name) + '</span>' +
-                '<span class="num">' + s.count + '</span>' +
-                '</button>';
-      });
-      body += '</div>';
-    }
-
-    if(detailData._episodes && detailData._episodes.length){
-      body += '<div class="section-title">选集播放（' + detailData._episodes.length + '）</div>';
-      body += '<div class="dushe-episodes">';
-      detailData._episodes.forEach((ep, i) => {
-        body += '<button class="dushe-ep-btn btn-play-dushe-ep" ' +
-                'data-href="' + escapeAttr(ep.href) + '" ' +
-                'data-title="' + escapeAttr(ep.title) + '">' +
-                escapeHtml(ep.title) +
-                '</button>';
-      });
-      body += '</div>';
-    }
-
     const hasAnything =
       detailData.playPageUrl ||
       (detailData.magnets && detailData.magnets.length) ||
-      (detailData.playList && detailData.playList.length) ||
-      (detailData._episodes && detailData._episodes.length);
+      (detailData.playList && detailData.playList.length);
 
     if(!hasAnything){
       body += '<div class="empty" style="padding:30px 0"><p>该影片暂未解析到磁力或播放地址</p></div>';
@@ -1135,45 +929,6 @@ async function openDetail(item){
         $('#paddr').textContent = url;
         startHlsPlayer(url);
         $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-      };
-    });
-
-    $$('#dBody .dushe-source-btn').forEach(btn => {
-      btn.onclick = function(){
-        $$('#dBody .dushe-source-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-      };
-    });
-
-    $$('#dBody .btn-play-dushe-ep').forEach(btn => {
-      btn.onclick = async function(){
-        const href = btn.dataset.href;
-        if(!href) return;
-
-        $('#playerBox').style.display = 'block';
-        $('#paddr').textContent = '正在解析播放地址…';
-        $('#paddr').className = 'paddr probing';
-
-        try{
-          const playHtml = await requestUrl(href);
-          const m3u8 = extractM3u8FromPlayPage(playHtml);
-          if(!m3u8){
-            $('#paddr').className = 'paddr fail';
-            $('#paddr').textContent = '未找到 m3u8 播放地址';
-            toast('未找到播放地址');
-            return;
-          }
-          $('#paddr').className = 'paddr ok';
-          $('#paddr').textContent = m3u8;
-          startHlsPlayer(m3u8);
-          toast('开始播放：' + btn.dataset.title);
-          $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-        }catch(e){
-          console.error(e);
-          $('#paddr').className = 'paddr fail';
-          $('#paddr').textContent = '解析失败：' + e.message;
-          toast('解析失败');
-        }
       };
     });
 
@@ -1304,3 +1059,5 @@ document.addEventListener('keydown', function(e){
 
 $('#kw').value = '';
 </script>
+</body>
+</html>

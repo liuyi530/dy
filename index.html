@@ -544,11 +544,14 @@ function escapeAttr(s){
   return escapeHtml(s).replace(/`/g,'&#96;');
 }
 
-/* ---------- 核心：从播放页 HTML 中提取真实 m3u8 ---------- */
+/* ============================================================
+   核心：从播放页 HTML 中提取真正的 m3u8
+   优先从 url= 参数里取（奈飞播放页的 iframe 结构）
+   ============================================================ */
 function extractVideoUrl(text){
   if(!text) return '';
 
-  // 先做常见转义还原
+  // 1. 还原 HTML 实体 + 反斜杠转义
   let s = String(text)
     .replace(/\\\//g, '/')
     .replace(/&amp;/g, '&')
@@ -557,7 +560,7 @@ function extractVideoUrl(text){
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>');
 
-  // 规范化 URL：自动把中文、空格等编码成合法字符，避免代理/播放器 fetch 失败
+  // 2. URL 规范化：把中文/空格编码成 %xx，避免代理/播放器 fetch 失败
   const normalize = (u) => {
     if(!u) return u;
     try {
@@ -567,43 +570,40 @@ function extractVideoUrl(text){
     }
   };
 
-  // 1. 优先解析 iframe 的 src 里的 url= 参数（奈飞播放页核心结构）
-  //    例：https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=https://p.xxx.com/.../HD中字版/index.m3u8
-  const iframeRegex = /<iframe[^>]*\ssrc=["']([^"']+)["']/gi;
+  // 3. 关键：直接从整个 HTML 文本里搜索 url= 后面的媒体地址
+  //    示例：...&url=https://p.bvvvvvvvvv1f.com/video/xxx/HD中字版/index.m3u8
+  const urlParamRe = /[?&]url=(https?:\/\/[^\s"'<>&]+?\.(?:m3u8|mp4|flv)[^\s"'<>&]*)/gi;
   let m;
-  while((m = iframeRegex.exec(s)) !== null){
+  while((m = urlParamRe.exec(s)) !== null){
+    const u = m[1];
+    if(MEDIA_RE.test(u)) return normalize(u);
+  }
+
+  // 4. 其次：遍历 iframe 的 src 提取
+  const iframeRe = /<iframe[^>]*\ssrc=["']([^"']+)["']/gi;
+  while((m = iframeRe.exec(s)) !== null){
     const src = m[1];
 
-    // 1.1 提取 url= 到引号之前的完整内容
-    const urlParamMatch = src.match(/[?&]url=([^"']+)/i);
-    if(urlParamMatch){
-      const u = urlParamMatch[1];
+    const urlMatch = src.match(/[?&]url=([^"']+)/i);
+    if(urlMatch){
+      const u = urlMatch[1];
       if(MEDIA_RE.test(u)) return normalize(u);
     }
-
-    // 1.2 src 本身就是媒体直链
     if(MEDIA_RE.test(src)) return normalize(src);
 
-    // 1.3 src 中直接包含媒体地址
     const mm = src.match(/https?:\/\/[^\s"'<>\\]+?\.(m3u8|mp4|flv)[^\s"'<>\\]*/i);
     if(mm) return normalize(mm[0]);
   }
 
-  // 2. 兜底：在整个 HTML 中搜索媒体地址
+  // 5. 兜底：整个 HTML 里搜媒体地址
   const patterns = [
     /https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i,
     /https?:\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
     /https?:\/\/[^\s"'<>\\]+?\.flv[^\s"'<>\\]*/i,
-    /\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*/i,
-    /\/\/[^\s"'<>\\]+?\.mp4[^\s"'<>\\]*/i,
   ];
   for(let i=0;i<patterns.length;i++){
     const mm = s.match(patterns[i]);
-    if(mm){
-      let u = mm[0];
-      if(u.startsWith('//')) u = 'https:' + u;
-      return normalize(u);
-    }
+    if(mm) return normalize(mm[0]);
   }
   return '';
 }
@@ -631,7 +631,7 @@ function startHlsPlayer(videoUrl){
   destroyHls();
   container.style.display = 'block';
 
-  // 统一通过代理加载：代理层会重写 m3u8 里的分片地址，整条链路都走代理
+  // 统一通过代理加载：代理层会重写 m3u8 里的分片地址
   const playSrc = CONFIG.relay + encodeURIComponent(videoUrl);
 
   if(typeof Hls !== 'undefined' && Hls.isSupported()){
@@ -1101,7 +1101,9 @@ async function openDetail(item){
       };
     });
 
-    /* ---------- 播放按钮：先解析 m3u8，成功才调用播放器 ---------- */
+    /* =========================================================
+       播放按钮：先请求播放页 → 提取 url= 后面的 m3u8 → 播放
+       ========================================================= */
     $$('#dBody .btn-play-ep').forEach(function(b){
       b.onclick = async function(){
         const rawUrl = b.dataset.url;
@@ -1110,7 +1112,7 @@ async function openDetail(item){
         const playerBox = $('#playerBox');
         const paddr = $('#paddr');
 
-        // 情况1：本身就是媒体直链，直接播放
+        // ---------- 情况1：本身就是 m3u8/mp4 直链 ----------
         if(MEDIA_RE.test(rawUrl)){
           if(playerBox) playerBox.style.display = 'block';
           if(paddr){
@@ -1122,8 +1124,10 @@ async function openDetail(item){
           return;
         }
 
-        // 情况2：是播放页（如奈飞 /vodplay/xxx-1-1.html），
-        //        先请求播放页从中提取真实 m3u8，成功才调用播放器
+        // ---------- 情况2：是播放页（如 /vodplay/xxx-1-1.html） ----------
+        // 1) 先请求该播放页 HTML
+        // 2) 从 HTML 里搜 url= 后面的真实 m3u8
+        // 3) 拿到 m3u8 才调 HLS 播放；拿不到就提示不播放
         const old = b.textContent;
         b.textContent = '解析中…';
         b.disabled = true;
@@ -1137,6 +1141,8 @@ async function openDetail(item){
         try{
           const page = await requestUrl(rawUrl);
           playUrl = extractVideoUrl(page);
+          console.log('[解析播放页]', rawUrl);
+          console.log('[提取到 m3u8]', playUrl);
         }catch(e){
           console.warn('播放页请求失败:', e);
           toast('播放页请求失败：' + (e.message || '网络错误'));
@@ -1147,17 +1153,17 @@ async function openDetail(item){
 
         if(!detailOpen) return;
 
-        // 解析失败：不调用播放器，只提示
+        // 未解析到 m3u8：不调用播放器
         if(!playUrl){
           if(paddr){
             paddr.className = 'paddr fail';
-            paddr.textContent = '未解析到 m3u8 地址，无法播放';
+            paddr.textContent = '未从播放页解析到 m3u8 地址';
           }
           toast('未解析到 m3u8，无法播放');
           return;
         }
 
-        // 解析成功：显示播放器并播放
+        // 解析成功：显示播放器并把 m3u8 交给 HLS
         if(playerBox) playerBox.style.display = 'block';
         if(paddr){
           paddr.className = 'paddr ok';

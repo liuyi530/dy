@@ -585,12 +585,11 @@ function extractVideoUrl(text){
   }
   return '';
 }
-
 /* ============================================================
    ★ 核心：从播放页 HTML 里提取播放器 iframe
    - 优先 ec.php（排除 union.maccms.la / prestrain 广告 iframe）
    - 其次 netflixgc 域名
-   - 再次从 player_aaaa 变量拼 ec.php
+   - 再次从 player_aaaa 变量拼 ec.php（★ 用解码后的 NBY- 值）
    ============================================================ */
 function extractPlayerIframe(html){
   if(!html) return '';
@@ -627,8 +626,71 @@ function extractPlayerIframe(html){
     try {
       const obj = JSON.parse(pm[1]);
       if(obj && obj.url){
-        // ec.php 兼容 base64 和 NBY- 明文两种形式，直接用原始值最稳
-        return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + obj.url;
+        // ★ 关键改动：先 base64 解码，再 URL 解码，用解码后的值
+        let decoded = obj.url;
+        try { decoded = atob(obj.url); } catch(e){}
+        try { decoded = decodeURIComponent(decoded); } catch(e){}
+        // 如果解码后还是空的，退回原值
+        if(!decoded) decoded = obj.url;
+        console.log('[player_aaaa 原始]', obj.url.slice(0, 60) + '...');
+        console.log('[player_aaaa 解码]', decoded.slice(0, 60) + '...');
+        return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
+      }
+    } catch(e){}
+  }
+
+  return '';
+}
+/* ============================================================
+   ★ 核心：从播放页 HTML 里提取播放器 iframe
+   - 优先 ec.php（排除 union.maccms.la / prestrain 广告 iframe）
+   - 其次 netflixgc 域名
+   - 再次从 player_aaaa 变量拼 ec.php（★ 用解码后的 NBY- 值）
+   ============================================================ */
+function extractPlayerIframe(html){
+  if(!html) return '';
+
+  const s = String(html).replace(/&amp;/g, '&');
+
+  // 1. 扫描所有 iframe
+  const re = /<iframe\b[^>]*?\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+  let m;
+  const candidates = [];
+  while((m = re.exec(s)) !== null){
+    let src = m[1].replace(/&quot;/g, '"').trim();
+    if(src.startsWith('//')) src = 'https:' + src;
+    if(/^https?:/i.test(src)) candidates.push(src);
+  }
+
+  // 1.1 优先 ec.php（奈飞播放器）
+  for(let i = 0; i < candidates.length; i++){
+    if(/ec\.php/i.test(candidates[i])) return candidates[i];
+  }
+  // 1.2 其次 netflixgc 域名
+  for(let i = 0; i < candidates.length; i++){
+    if(/netflixgc/i.test(candidates[i])) return candidates[i];
+  }
+  // 1.3 排除广告 iframe 后返回第一个
+  for(let i = 0; i < candidates.length; i++){
+    if(/union\.maccms|prestrain|ads?|advert|doubleclick|googlesyndication/i.test(candidates[i])) continue;
+    return candidates[i];
+  }
+
+  // 2. 从 player_aaaa 变量拼 ec.php
+  const pm = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/);
+  if(pm){
+    try {
+      const obj = JSON.parse(pm[1]);
+      if(obj && obj.url){
+        // ★ 关键改动：先 base64 解码，再 URL 解码，用解码后的值
+        let decoded = obj.url;
+        try { decoded = atob(obj.url); } catch(e){}
+        try { decoded = decodeURIComponent(decoded); } catch(e){}
+        // 如果解码后还是空的，退回原值
+        if(!decoded) decoded = obj.url;
+        console.log('[player_aaaa 原始]', obj.url.slice(0, 60) + '...');
+        console.log('[player_aaaa 解码]', decoded.slice(0, 60) + '...');
+        return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
       }
     } catch(e){}
   }

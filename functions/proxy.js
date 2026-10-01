@@ -1,6 +1,5 @@
 const ALLOW_ORIGIN = '*';
 
-// 需要自动获取 cookie 的站点
 const COOKIE_HOSTS = {
   'www.dushe3.app': {
     home: 'https://www.dushe3.app/',
@@ -44,7 +43,7 @@ export async function onRequest(context) {
   // ===== 自动获取或刷新 cookie =====
   let autoCookie = '';
   if (COOKIE_HOSTS[targetHost]) {
-    autoCookie = await getHostCookie(targetHost);
+    autoCookie = await getHostCookie(targetHost, u.origin);
   }
 
   const init = {
@@ -59,7 +58,7 @@ export async function onRequest(context) {
     redirect: 'follow',
   };
 
-  // 优先读取前端透传的自定义 cookie；若无则使用缓存/自动获取的 cookie
+  // 优先读取前端透传的自定义 cookie；若无则使用自动获取的 cookie
   const manualCookie = request.headers.get('x-target-cookie') || '';
   if (manualCookie) {
     init.headers['Cookie'] = manualCookie;
@@ -92,7 +91,7 @@ export async function onRequest(context) {
       if (!sc) continue;
       const m = sc.match(new RegExp(name + '=[^;]+'));
       if (m) {
-        await cacheCookie(targetHost, m[0]);
+        await cacheCookie(targetHost, m[0], u.origin);
         break;
       }
     }
@@ -103,7 +102,7 @@ export async function onRequest(context) {
   const ct = resp.headers.get('content-type');
   if (ct) headers.set('Content-Type', ct);
 
-  // 清除源站限制外嵌的安全响应标头
+  // 清除源站限制外嵌的安全响应标头（修正参数传递）
   headers.delete('x-frame-options');
   headers.delete('content-security-policy');
   headers.delete('content-security-policy-report-only');
@@ -111,21 +110,22 @@ export async function onRequest(context) {
   return new Response(body, { status: resp.status, headers });
 }
 
-/* ========== Cookie 缓存逻辑 ========== */
+/* ========== Cookie 缓存逻辑 (修正 URL 域名与异常防爆) ========== */
 
-async function getHostCookie(host) {
-  const cache = caches.default;
+async function getHostCookie(host, appOrigin) {
   try {
-    const cached = await cache.match(cookieCacheKey(host));
-    if (cached) {
-      const txt = await cached.text();
-      if (txt) return txt;
+    if (typeof caches !== 'undefined' && caches.default) {
+      const cached = await caches.default.match(cookieCacheKey(host, appOrigin));
+      if (cached) {
+        const txt = await cached.text();
+        if (txt) return txt;
+      }
     }
   } catch (e) {}
-  return await refreshHostCookie(host);
+  return await refreshHostCookie(host, appOrigin);
 }
 
-async function refreshHostCookie(host) {
+async function refreshHostCookie(host, appOrigin) {
   const cfg = COOKIE_HOSTS[host];
   if (!cfg) return '';
   try {
@@ -150,34 +150,32 @@ async function refreshHostCookie(host) {
       }
     }
 
-    if (!targetCookie) {
-      console.warn('首页未返回目标 cookie');
-      return '';
-    }
+    if (!targetCookie) return '';
 
-    await cacheCookie(host, targetCookie);
+    await cacheCookie(host, targetCookie, appOrigin);
     return targetCookie;
   } catch (e) {
-    console.error('获取 cookie 失败:', e);
     return '';
   }
 }
 
-async function cacheCookie(host, cookie) {
+async function cacheCookie(host, cookie, appOrigin) {
   try {
-    const cache = caches.default;
-    const resp = new Response(cookie, {
-      headers: {
-        'Cache-Control': 'max-age=1800',
-        'Content-Type': 'text/plain',
-      },
-    });
-    await cache.put(cookieCacheKey(host), resp);
+    if (typeof caches !== 'undefined' && caches.default) {
+      const resp = new Response(cookie, {
+        headers: {
+          'Cache-Control': 'max-age=1800',
+          'Content-Type': 'text/plain',
+        },
+      });
+      await caches.default.put(cookieCacheKey(host, appOrigin), resp);
+    }
   } catch (e) {}
 }
 
-function cookieCacheKey(host) {
-  return new Request('https://cookie-cache.internal/' + host);
+// 必须使用当前 App 站点的合法绝对路径，不能使用 internal 伪协议
+function cookieCacheKey(host, appOrigin) {
+  return new Request(`${appOrigin}/__cache_cookie__/${encodeURIComponent(host)}`);
 }
 
 /* ========== CORS 配置 ========== */

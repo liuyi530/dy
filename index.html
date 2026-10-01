@@ -424,6 +424,7 @@ const SOURCES = {
       };
     },
 
+    /* ★★★ 改动点 1：parseDetail 把线路名一起存进数据里 ★★★ */
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
 
@@ -461,7 +462,8 @@ const SOURCES = {
           if(!epName) epName = '正片';
 
           playList.push({
-            title: epName,
+            lineName: lineName,
+            epName: epName,
             url: abs(href, this.base)
           });
         });
@@ -1122,19 +1124,12 @@ async function openDetail(item){
       $('#dThumb').style.backgroundImage = "url('" + detailData.cover + "')";
     }
 
+    /* ★★★ 改动点 2：分组严格按照 lineName，不再靠 idx / 50 猜测 ★★★ */
     let playListHtml = '';
     if (currentSource === 'netflix' && detailData.playList && detailData.playList.length) {
       const groups = {};
       detailData.playList.forEach((p, idx) => {
-        let lineName = '线路1';
-        if (p.title.includes('线路')) {
-          const match = p.title.match(/(线路\d+)/);
-          if (match) lineName = match[1];
-        } else {
-          const lineIndex = Math.floor(idx / 50) + 1;
-          lineName = '线路' + lineIndex;
-        }
-        
+        const lineName = p.lineName || '线路1';
         if (!groups[lineName]) {
           groups[lineName] = [];
         }
@@ -1146,23 +1141,22 @@ async function openDetail(item){
         const eps = groups[lineName];
         const isFirst = lineIdx === 0;
         return `
-          <div class="line-group ${isFirst ? 'open' : ''}" data-line="${lineName}">
+          <div class="line-group ${isFirst ? 'open' : ''}" data-line="${escapeAttr(lineName)}">
             <div class="line-header">
               <div class="line-title">
-                ${lineName}
+                ${escapeHtml(lineName)}
                 <span class="line-count">共 ${eps.length} 集</span>
               </div>
               <span class="line-arrow">▼</span>
             </div>
             <div class="line-body">
-              ${eps.map((ep, epIdx) => {
-                let epTitle = ep.title.replace(/^线路\d+[\s·]*/, '').trim();
-                if (!epTitle) epTitle = '第' + (epIdx + 1) + '集';
+              ${eps.map((ep) => {
+                const epTitle = ep.epName || ('第' + (eps.indexOf(ep) + 1) + '集');
                 return `
                   <button class="ep-btn btn-play-ep" 
                           data-url="${escapeAttr(ep.url)}"
                           data-index="${ep.originalIndex}"
-                          data-line="${lineName}"
+                          data-line="${escapeAttr(lineName)}"
                           data-title="${escapeAttr(epTitle)}">
                     ${escapeHtml(epTitle)}
                   </button>
@@ -1176,7 +1170,7 @@ async function openDetail(item){
       playListHtml = detailData.playList.map((p, i) => {
         return `
           <div class="episode-item" style="animation-delay:${i * 30}ms">
-            <div class="fname" title="${escapeAttr(p.title)}">${escapeHtml(p.title)}</div>
+            <div class="fname" title="${escapeAttr(p.title || p.epName || '')}">${escapeHtml(p.title || p.epName || '')}</div>
             <div class="row">
               <div class="btns">
                 <button class="btn btn-open btn-play-ep" data-url="${escapeAttr(p.url)}" data-index="${i}">立即播放</button>
@@ -1403,7 +1397,7 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
     toast('未解析到播放地址，无法播放');
 }
 
-/* 上下集 */
+/* ★★★ 改动点 3：上下集直接用 p.lineName / p.epName，不再用正则抠 ★★★ */
 async function playAdjacent(delta) {
     const list = window._currentPlayList;
     if (!list || list.length === 0) return;
@@ -1415,15 +1409,8 @@ async function playAdjacent(delta) {
     }
 
     const p = list[newIndex];
-    let lineName = '线路';
-    let epTitle = p.title;
-    if (p.title.includes('线路')) {
-        const match = p.title.match(/(线路\d+)/);
-        if (match) {
-            lineName = match[1];
-            epTitle = p.title.replace(/^线路\d+[\s·]*/, '').trim();
-        }
-    }
+    const lineName = p.lineName || '线路';
+    const epTitle = p.epName || p.title || '正片';
 
     $$('.ep-btn').forEach(btn => {
         if (parseInt(btn.dataset.index, 10) === newIndex) {

@@ -337,6 +337,7 @@ const SOURCES = {
       return this.base + '/';
     },
     parseToken: function(html){
+      if (!html) return '';
       const matches = html.match(/t=([A-Za-z0-9+/=%]+)/g) || [];
       for (let i = 0; i < matches.length; i++){
         const v = matches[i].slice(2);
@@ -344,11 +345,14 @@ const SOURCES = {
           return v;
         }
       }
+      const directMatch = html.match(/\/search\?t=([A-Za-z0-9+/=%]+)/);
+      if (directMatch) return directMatch[1];
       return '';
     },
 
     getSearchUrl: function(kw, token){
-      let tEncoded = token.includes('%') ? token : encodeURIComponent(token);
+      const tVal = token || '';
+      let tEncoded = tVal.includes('%') ? tVal : encodeURIComponent(tVal);
       return this.base + '/search?t=' + tEncoded + '&k=' + encodeURIComponent(kw);
     },
 
@@ -357,8 +361,7 @@ const SOURCES = {
       return {
         method: 'GET',
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://www.dushe3.app/'
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
         }
       };
     },
@@ -368,26 +371,26 @@ const SOURCES = {
       const list = [];
       const seen = new Set();
 
-      doc.querySelectorAll('a.search-result-item').forEach(a => {
+      doc.querySelectorAll('a.search-result-item, .search-item, .film-item, a[href*="/detail/"]').forEach(a => {
         const href = a.getAttribute('href') || '';
         if (!href || seen.has(href)) return;
         seen.add(href);
 
-        const titleEl = a.querySelector('.search-result-item-main .title');
-        const name = titleEl ? titleEl.textContent.trim() : '';
-        if (!name) return;
+        const titleEl = a.querySelector('.title') || a.querySelector('.name') || a.querySelector('h3');
+        const name = titleEl ? titleEl.textContent.trim() : a.textContent.trim();
+        if (!name || name.length > 50) return;
 
         let cover = '';
-        const imgEl = a.querySelector('.search-result-item-pic img');
+        const imgEl = a.querySelector('img');
         if (imgEl){
           const src = imgEl.getAttribute('src') || '';
-          const ori = imgEl.getAttribute('data-original') || '';
-          cover = (src && !src.includes('logo_placeholder'))
+          const ori = imgEl.getAttribute('data-original') || imgEl.getAttribute('data-src') || '';
+          cover = (src && !src.includes('placeholder'))
                     ? src
-                    : (ori && !ori.includes('logo_placeholder') ? ori : '');
+                    : (ori && !ori.includes('placeholder') ? ori : '');
         }
 
-        const tagEls = a.querySelectorAll('.search-result-item-main .tags span');
+        const tagEls = a.querySelectorAll('.tags span, .tag, .meta span');
         let year = '', region = '', type = '';
         if (tagEls.length >= 1) year   = tagEls[0].textContent.trim();
         if (tagEls.length >= 2) region = tagEls[1].textContent.trim();
@@ -407,7 +410,7 @@ const SOURCES = {
       });
 
       let nextUrl = '', hasMore = false;
-      const nextA = doc.querySelector('.pagenation-box a.page-item-next');
+      const nextA = doc.querySelector('.pagenation-box a.page-item-next, a.next');
       if (nextA){
         const nhref = nextA.getAttribute('href') || '';
         if (nhref && !nhref.includes('javascript:')){
@@ -448,10 +451,10 @@ const SOURCES = {
       });
 
       const episodes = [];
-      doc.querySelectorAll('.episode-list .episode-item').forEach(a => {
+      doc.querySelectorAll('.episode-list .episode-item, .playlist a').forEach(a => {
         const href = a.getAttribute('href') || '';
         const spanEl = a.querySelector('span');
-        const title = spanEl ? spanEl.textContent.trim() : '';
+        const title = spanEl ? spanEl.textContent.trim() : a.textContent.trim();
         if (!href) return;
         episodes.push({
           title: title || ('第 ' + (episodes.length + 1) + ' 集'),
@@ -657,44 +660,34 @@ function startHlsPlayer(videoUrl){
 }
 
 /* ============================================================
-   网络请求与防盾处理（防止 500/502 Gateway 错误）
+   网络请求与代理通信
    ============================================================ */
+let lastReceivedCookie = '';
+
 async function fetchViaRelay(url, opts, timeout){
   const target = CONFIG.relay + encodeURIComponent(url);
-  const r = await fetchWithTimeout(target, opts || {}, timeout);
+  const options = opts || {};
+  const headers = options.headers || {};
+
+  if (lastReceivedCookie) {
+    headers['x-target-cookie'] = lastReceivedCookie;
+  }
+  options.headers = headers;
+
+  const r = await fetchWithTimeout(target, options, timeout);
+  
+  const setCookie = r.headers.get('x-set-cookie');
+  if (setCookie) {
+    const m = setCookie.match(/cdndefend_js_cookie=[^;]+/);
+    if (m) {
+      lastReceivedCookie = m[0];
+    }
+  }
+
   if(!r.ok) {
     throw new Error('网络请求服务响应异常 (' + r.status + ')');
   }
   return await r.text();
-}
-
-async function autoSolveDusheShield(homeUrl) {
-  return new Promise((resolve) => {
-    let iframe = document.getElementById('dushe_shield_iframe');
-    if (iframe) iframe.remove();
-
-    iframe = document.createElement('iframe');
-    iframe.id = 'dushe_shield_iframe';
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-
-    const checkTimer = setInterval(() => {
-      const match = document.cookie.match(/cdndefend_js_cookie=[^;]+/);
-      if (match) {
-        clearInterval(checkTimer);
-        iframe.remove();
-        resolve(match[0]);
-      }
-    }, 200);
-
-    setTimeout(() => {
-      clearInterval(checkTimer);
-      if (iframe) iframe.remove();
-      resolve('');
-    }, 3000);
-
-    iframe.src = CONFIG.relay + encodeURIComponent(homeUrl);
-  });
 }
 
 async function requestSearch(keyword) {
@@ -705,25 +698,22 @@ async function requestSearch(keyword) {
     try {
       homeHtml = await fetchViaRelay(src.getHomeUrl(), src.getSearchOptions());
     } catch (err) {
-      console.warn('[dushe3] 首页初始化遇到限制，尝试解盾...', err);
+      console.warn('[dushe3] 访问首页遭遇异常:', err);
     }
 
-    let token = homeHtml ? src.parseToken(homeHtml) : '';
-
-    if (!token) {
-      console.log('[dushe3] 触发盾保护，启动无感破解计算...');
-      await autoSolveDusheShield(src.getHomeUrl());
-      try {
-        homeHtml = await fetchViaRelay(src.getHomeUrl(), src.getSearchOptions());
-        token = src.parseToken(homeHtml);
-      } catch(e){}
-    }
-
-    if (!token) throw new Error('毒舌源站无响应，请重试');
+    let token = src.parseToken(homeHtml);
 
     const searchUrl = src.getSearchUrl(keyword, token);
-    const html = await fetchViaRelay(searchUrl, src.getSearchOptions());
-    if (!html || html.length < 100) throw new Error('搜索结果为空');
+    let html = '';
+    try {
+      html = await fetchViaRelay(searchUrl, src.getSearchOptions());
+    } catch (e) {
+      console.warn('[dushe3] 带token搜索失败，尝试无token搜索:', e);
+      const fallbackUrl = src.base + '/search?k=' + encodeURIComponent(keyword);
+      html = await fetchViaRelay(fallbackUrl, src.getSearchOptions());
+    }
+
+    if (!html || html.length < 100) throw new Error('毒舌源站无响应，请重试');
     return html;
   }
 

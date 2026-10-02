@@ -773,3 +773,9 @@ body{
     font-size: .9rem;
   }
 }
+
+
+/* 隐藏在线播放器里的地址显示，并让播放器直接顶上来 */
+#paddr {
+  display: none !important;
+}

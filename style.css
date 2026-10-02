@@ -501,13 +501,12 @@ body{
 /* ============================================================
    片源横滑选择器（Uiverse 风格 + 中间大两边小 + active 永远居中）
    ============================================================ */
-.src-swiper{
+..src-swiper{
   position:relative;
   width:100%;
-  height:80px;
+  height:52px;              /* ← 80 → 52，只留导轨 + active 出头 */
   overflow:hidden;
   margin-bottom:10px;
-  /* 两端渐隐留白 */
   -webkit-mask-image:linear-gradient(90deg,
     transparent 0%, #000 12%, #000 88%, transparent 100%);
   mask-image:linear-gradient(90deg,
@@ -515,13 +514,12 @@ body{
   touch-action:pan-x;
 }
 
-/* 绿色导轨：固定不动，撑满屏幕 */
 .src-rail{
   position:absolute;
   left:0;
   right:0;
   bottom:0;
-  height:42px;                   /* ← 绿色高度，比白 pill 高 */
+  height:42px;              /* 导轨保持 42px */
   background:#70c489;
   border-radius:0.5rem 0.5rem 0 0;
   pointer-events:none;
@@ -620,7 +618,7 @@ body{
 }
 
 @media(min-width:640px){
-  .src-swiper{height:90px}
+  .src-swiper{height:58px}
   .src-rail{height:48px}
   .src-pill{width:84px;height:42px}
   .src-pill.active{font-size:14px}

@@ -460,7 +460,7 @@ button.loading .btxt{display:none}
   gap:10px;
   margin-bottom:14px;
   align-items:center;
-  flex-wrap:wrap;
+  flex-wrap:nowrap;              /* ★ 三元素强制一行 */
 }
 .jiexi-row label{
   font-size:14px;
@@ -469,14 +469,14 @@ button.loading .btxt{display:none}
   white-space:nowrap;
 }
 .jiexi-select{
-  flex:1;
-  min-width:160px;
+  flex:1 1 auto;                 /* ★ 占满剩余空间 */
+  min-width:80px;                /* ★ 缩小下限 */
   height:42px;
   background:var(--bg2);
   border:1px solid var(--line);
   border-radius:10px;
   color:var(--txt);
-  padding:0 12px;
+  padding:0 10px;
   font-size:14px;
   outline:none;
   cursor:pointer;
@@ -485,31 +485,11 @@ button.loading .btxt{display:none}
   background:var(--card);
   color:var(--txt);
 }
-.jiexi-input-group{
-  display:flex;
-  gap:8px;
-  width:100%;
-}
-.jiexi-input-group input{
-  flex:1;
-  min-width:0;
-  height:44px;
-  background:var(--bg2);
-  border:1px solid var(--line);
-  border-radius:10px;
-  color:var(--txt);
-  padding:0 14px;
-  font-size:14px;
-  outline:none;
-  transition:.2s;
-}
-.jiexi-input-group input:focus{
-  border-color:var(--main);
-  box-shadow:0 0 0 3px rgba(32,201,151,.15);
-}
-.jiexi-input-group button{
-  height:44px;
-  padding:0 20px;
+/* ★ 新增：点击解析按钮 */
+.jiexi-go-btn{
+  flex:0 0 auto;
+  height:42px;
+  padding:0 18px;
   background:linear-gradient(135deg,var(--main),var(--main2));
   border:none;
   border-radius:10px;
@@ -520,7 +500,8 @@ button.loading .btxt{display:none}
   white-space:nowrap;
   transition:.15s;
 }
-.jiexi-input-group button:active{transform:scale(.96)}
+.jiexi-go-btn:active{transform:scale(.96)}
+
 .jiexi-player{
   margin-top: 16px;
   width: 100%;
@@ -559,7 +540,7 @@ button.loading .btxt{display:none}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* ============================================================
-   片源横滑选择器（无限循环 + 中间大 / 左右中 / 再外小）
+   片源横滑选择器（中间大 / 左右中 / 再外小；active 永远居中）
    ============================================================ */
 .src-swiper{
   position:relative;
@@ -578,14 +559,14 @@ button.loading .btxt{display:none}
   gap:14px;
   height:100%;
   padding:0 12px;
-  position:relative;        /* ★ 新增：让 offsetLeft 相对 track 计算 */
+  position:relative;
   will-change:transform;
   cursor:grab;
   user-select:none;
+  /* ★ transition 由 JS 动态控制，这里不写死 */
 }
 
-
-/* 基础 pill：固定宽度 + 缩放，让居中计算稳定 */
+/* 基础 pill */
 .src-pill{
   flex:0 0 auto;
   width:100px;
@@ -602,7 +583,6 @@ button.loading .btxt{display:none}
   white-space:nowrap;
   cursor:pointer;
   transform-origin:center center;
-  /* 默认（最外侧）：最小、最暗 */
   transform:scale(.62);
   opacity:.4;
   transition:transform .4s cubic-bezier(.22,.8,.28,1),
@@ -610,14 +590,12 @@ button.loading .btxt{display:none}
              box-shadow .35s, font-size .35s, opacity .35s;
 }
 
-/* 邻近中心（左右各一）：中 */
 .src-pill.near{
   transform:scale(.86);
   opacity:.85;
   font-size:13px;
 }
 
-/* 中心：大 */
 .src-pill.active{
   background:linear-gradient(135deg,var(--main),var(--main2));
   border-color:transparent;

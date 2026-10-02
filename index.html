@@ -1375,10 +1375,7 @@ function renderJiexiUI(){
             '<option value="https://im1907.top/?jx=">直搜片名1</option>' +
             '<option value="https://am1907.top/?jx=">直搜片名2</option>' +
           '</select>' +
-        '</div>' +
-        '<div class="jiexi-input-group">' +
-          '<input type="text" id="jiexiInput" placeholder="请输入电影名称或视频播放链接URL" autocomplete="off">' +
-          '<button id="btnJiexiDo">点击解析</button>' +
+          '<button id="btnJiexiDo" class="jiexi-go-btn">点击解析</button>' +
         '</div>' +
         '<div class="jiexi-player" id="jiexiPlayer">' +
           '<iframe id="jiexiFrame" allowfullscreen allow="autoplay; encrypted-media"></iframe>' +
@@ -1387,11 +1384,8 @@ function renderJiexiUI(){
     '</div>';
   $('#content').innerHTML = html;
 
-  const kw = $('#kw').value.trim();
-  if(kw) $('#jiexiInput').value = kw;
-
   const doJiexi = function(){
-    const val = $('#jiexiInput').value.trim();
+    const val = $('#kw').value.trim();
     if(!val){ toast('请输入内容'); return; }
     const line = $('#jiexiLine').value;
     const player = $('#jiexiPlayer');
@@ -1402,7 +1396,7 @@ function renderJiexiUI(){
   };
 
   $('#btnJiexiDo').onclick = doJiexi;
-  $('#jiexiInput').addEventListener('keydown', function(e){
+  $('#kw').addEventListener('keydown', function(e){
     if(e.key === 'Enter' || e.keyCode === 13){
       e.preventDefault();
       doJiexi();

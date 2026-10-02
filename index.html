@@ -1990,6 +1990,9 @@ function switchSource(src){
 
   currentSource = src;
   searchToken++;
+  if(window.__srcSwiperSet){
+  window.__srcSwiperSet(src);
+}
 
 
 
@@ -2027,7 +2030,7 @@ function switchSource(src){
 }
 
 /* ============================================================
-   片源横滑选择器（中间大 / 左右中 / 再外小；active 永远居中；到头就停）
+   片源横滑选择器（中间大 / 左右中 / 再外小；手势切换；到头就停）
    ============================================================ */
 (function initSrcSwiper(){
   const swiper = document.getElementById('srcSwiper');
@@ -2051,11 +2054,13 @@ function switchSource(src){
   const pills = Array.prototype.slice.call(track.querySelectorAll('.src-pill'));
   const N = pills.length;
 
-  let activeIdx = Math.max(0, SRC_LIST.findIndex(o => o.src === currentSource));
-  if(activeIdx < 0) activeIdx = 0;
+  /* ★ 默认居中（双数偏左）：Math.floor((N-1)/2) */
+  const defaultIdx = Math.floor((N - 1) / 2);
+  const savedIdx   = SRC_LIST.findIndex(o => o.src === currentSource);
+  let activeIdx = (savedIdx <= 0) ? defaultIdx : savedIdx;
 
-  let baseOffset = 0;
-  let dragDelta  = 0;
+  /* ★ 让 currentSource 跟默认 active 保持一致，视觉和数据一致 */
+  currentSource = SRC_LIST[activeIdx].src;
 
   function applyClasses(){
     pills.forEach((p, i) => {
@@ -2064,44 +2069,40 @@ function switchSource(src){
     });
   }
 
-  /* ★ 给 track 加左右 padding，让第一个/最后一个也能被推到正中间 */
-  function updateTrackPadding(){
+  /* ★ 用 paddingLeft/Right 让 active 居中（不用 translateX） */
+  function applyCenterPadding(){
     const wrapW = swiper.clientWidth;
-    const firstW = pills[0].offsetWidth;
-    const lastW  = pills[N - 1].offsetWidth;
-    const padL = Math.max(0, wrapW / 2 - firstW / 2);
-    const padR = Math.max(0, wrapW / 2 - lastW  / 2);
+    const el = pills[activeIdx];
+    if(!el) return;
+
+    const elW = el.getBoundingClientRect().width;
+
+    let leftSum = 0;
+    for(let i = 0; i < activeIdx; i++){
+      leftSum += pills[i].offsetWidth + 14;   /* 14 = gap */
+    }
+    const padL = Math.max(0, wrapW / 2 - elW / 2 - leftSum);
+
+    let rightSum = 0;
+    for(let i = activeIdx + 1; i < N; i++){
+      rightSum += pills[i].offsetWidth + 14;
+    }
+    const padR = Math.max(0, wrapW / 2 - elW / 2 - rightSum);
+
     track.style.paddingLeft  = padL + 'px';
     track.style.paddingRight = padR + 'px';
   }
 
-  /* ★ 不再夹取，直接让 active 居中 */
-  function calcTargetOffset(){
-    const wrapW = swiper.clientWidth;
-    const el = pills[activeIdx];
-    if(!el) return 0;
-    const elCenter = el.offsetLeft + el.offsetWidth / 2;
-    return wrapW / 2 - elCenter;
-  }
-
-  function applyTransform(withAnimation){
-    track.style.transition = withAnimation ? '' : 'none';
-    track.style.transform  = 'translateX(' + (baseOffset + dragDelta) + 'px)';
-  }
-
-  function layout(withAnimation){
-    updateTrackPadding();     /* ★ 先保证 padding 是最新的 */
+  function layout(){
     applyClasses();
-    baseOffset = calcTargetOffset();
-    dragDelta  = 0;
-    applyTransform(withAnimation);
+    applyCenterPadding();
   }
 
-  function setActive(idx, withAnimation){
+  function setActive(idx){
     if(idx < 0) idx = 0;
     if(idx >= N) idx = N - 1;
     if(idx === activeIdx){
-      layout(withAnimation !== false);
+      layout();
       return;
     }
     activeIdx = idx;
@@ -2109,95 +2110,80 @@ function switchSource(src){
     if(newSrc !== currentSource){
       switchSource(newSrc);
     }
-    layout(withAnimation !== false);
+    layout();
   }
 
-  /* 点击 */
+  /* 点击 pill 切换 */
   pills.forEach((p, i) => {
     p.addEventListener('click', function(e){
       e.stopPropagation();
-      setActive(i, true);
+      setActive(i);
     });
   });
 
-  /* 拖动 */
-  let dragging  = false;
-  let startX    = 0;
-  let moved     = false;
-  let lastDelta = 0;
+  /* ★ 手势切换：只检测滑动方向，列表本身不动 */
+  let startX = 0, startY = 0, tracking = false, fired = false;
+  const SWIPE_THRESHOLD = 30;
 
-  function onDown(x){
-    dragging  = true;
-    moved     = false;
-    startX    = x;
-    dragDelta = 0;
-    lastDelta = 0;
+  function onDown(x, y){
+    tracking = true; fired = false;
+    startX = x; startY = y;
     track.classList.add('dragging');
-    track.style.transition = 'none';
   }
 
-  function onMove(x){
-    if(!dragging) return;
+  function onMove(x, y){
+    if(!tracking || fired) return;
     const dx = x - startX;
-    if(Math.abs(dx) > 4) moved = true;
-    lastDelta = dx;
-    dragDelta = dx;
-    track.style.transform = 'translateX(' + (baseOffset + dragDelta) + 'px)';
+    const dy = y - startY;
+
+    /* 竖直滑动为主：放弃（让页面滚动） */
+    if(Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) return;
+
+    if(dx <= -SWIPE_THRESHOLD){
+      fired = true;
+      setActive(activeIdx + 1);
+    } else if(dx >= SWIPE_THRESHOLD){
+      fired = true;
+      setActive(activeIdx - 1);
+    }
   }
 
   function onUp(){
-    if(!dragging) return;
-    dragging = false;
+    tracking = false; fired = false;
     track.classList.remove('dragging');
-    track.style.transition = '';
-
-    const threshold = 40;
-    const step = pills[0] ? (pills[0].offsetWidth + 14) : 114;
-
-    if(Math.abs(lastDelta) < threshold){
-      dragDelta = 0;
-      applyTransform(true);
-      return;
-    }
-
-    const dir = lastDelta < 0 ? 1 : -1;
-    let steps = Math.max(1, Math.round(Math.abs(lastDelta) / step));
-    let newIdx = activeIdx + dir * steps;
-
-    /* 到头就停 */
-    if(newIdx < 0) newIdx = 0;
-    if(newIdx >= N) newIdx = N - 1;
-
-    setActive(newIdx, true);
   }
 
-  track.addEventListener('mousedown', e => { e.preventDefault(); onDown(e.clientX); });
-  window.addEventListener('mousemove', e => onMove(e.clientX));
+  track.addEventListener('mousedown', e => { e.preventDefault(); onDown(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
   window.addEventListener('mouseup', onUp);
 
-  track.addEventListener('touchstart', e => onDown(e.touches[0].clientX), { passive:true });
-  track.addEventListener('touchmove',  e => onMove(e.touches[0].clientX), { passive:true });
+  track.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    onDown(t.clientX, t.clientY);
+  }, { passive:true });
+  track.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    onMove(t.clientX, t.clientY);
+  }, { passive:true });
   track.addEventListener('touchend', onUp);
   track.addEventListener('touchcancel', onUp);
 
   let resizeTimer = null;
   window.addEventListener('resize', function(){
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function(){ layout(false); }, 120);
+    resizeTimer = setTimeout(layout, 120);
   });
 
-  /* 初始化：等两帧确保字体/宽度算好 */
+  /* 初始化 */
   requestAnimationFrame(function(){
-    requestAnimationFrame(function(){
-      layout(false);
-    });
+    requestAnimationFrame(layout);
   });
 
   window.__srcSwiperSet = function(src){
     const idx = SRC_LIST.findIndex(o => o.src === src);
     if(idx < 0) return;
     activeIdx = idx;
-    layout(true);
+    layout();
   };
 })();
 

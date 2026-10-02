@@ -2013,12 +2013,12 @@ async function probePlayUrl(playPageUrl){
 
   if(detected){
     paddr.className = 'paddr ok';
-    paddr.textContent = finalUrl;
+    paddr.textContent = "";
     toast('已探测到播放地址');
   }else{
     paddr.className = 'paddr fail';
-    paddr.textContent = '未探测到 m3u8/mp4，使用原始地址：' + finalUrl;
-  }
+    paddr.textContent = '未探测到播放地址';
+}
 
   playBtns.style.display = 'flex';
 

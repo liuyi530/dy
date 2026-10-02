@@ -499,76 +499,122 @@ body{
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 /* ============================================================
-   片源横滑选择器（中间大 / 左右中 / 再外小；active 永远居中）
+   片源横滑选择器（Uiverse 风格 + 中间大两边小 + active 永远居中）
    ============================================================ */
 .src-swiper{
   position:relative;
   width:100%;
-  height:64px;
+  height:72px;
   overflow:hidden;
   margin-bottom:10px;
-  -webkit-mask-image:linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
-  mask-image:linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+  /* 两端渐隐留白 */
+  -webkit-mask-image:linear-gradient(90deg,
+    transparent 0%, #000 14%, #000 86%, transparent 100%);
+  mask-image:linear-gradient(90deg,
+    transparent 0%, #000 14%, #000 86%, transparent 100%);
   touch-action:pan-x;
 }
 
 .src-track{
   display:flex;
-  align-items:center;
-  gap:14px;
+  align-items:flex-end;      /* 让 pill 底部对齐，好画凹角 */
+  gap:6px;                   /* Uiverse 视觉：紧凑些 */
   height:100%;
   padding:0 12px;
   position:relative;
   will-change:transform;
   cursor:grab;
   user-select:none;
+  /* 底部一条绿色「导轨」，Uiverse 味 */
+  background:linear-gradient(180deg, transparent 0%, transparent 70%, #70c489 70%, #70c489 100%);
+  background-size:100% 100%;
+  border-radius:0.5rem;
 }
 
-/* 基础 pill */
+/* 非 active：小尺寸、暗色，缩在导轨上 */
 .src-pill{
   flex:0 0 auto;
-  width:100px;
+  width:96px;
   height:40px;
   display:flex;
   align-items:center;
   justify-content:center;
-  background:var(--card);
-  border:1px solid var(--line);
-  color:var(--sub);
-  border-radius:999px;
+  background:transparent;
+  border:none;
+  color:#0e1116;
+  border-radius:0.5rem 0.5rem 0 0;
   font-size:13px;
   font-weight:600;
   white-space:nowrap;
   cursor:pointer;
-  transform-origin:center center;
-  transform:scale(.62);
-  opacity:.4;
+  transform-origin:center bottom;
+  transform:scale(.72);
+  opacity:.55;
+  position:relative;
   transition:transform .4s cubic-bezier(.22,.8,.28,1),
-             color .35s, background .35s, border-color .35s,
-             box-shadow .35s, font-size .35s, opacity .35s;
+             opacity .35s, background .35s, color .35s,
+             font-size .35s;
 }
 
+/* 邻近的一个：中等尺寸 */
 .src-pill.near{
-  transform:scale(.86);
-  opacity:.85;
+  transform:scale(.88);
+  opacity:.8;
   font-size:13px;
 }
 
+/* active：Uiverse 白底 + 左右内凹圆角 + 阴影衔接 */
 .src-pill.active{
-  background:linear-gradient(135deg,var(--main),var(--main2));
-  border-color:transparent;
-  color:#04150f;
-  transform:scale(1.15);
+  background:#e8e8e8;
+  color:#1d1d29;
+  transform:scale(1.08);
   opacity:1;
-  font-size:15px;
-  font-weight:800;
-  box-shadow:0 6px 20px rgba(32,201,151,.45);
+  font-size:14px;
+  font-weight:700;
+  box-shadow:0 -2px 12px rgba(0,0,0,.25);
+}
+
+/* 左侧内凹圆弧（Uiverse 的 ::before） */
+.src-pill.active::before{
+  content:"";
+  position:absolute;
+  left:-10px;
+  bottom:0;
+  width:10px;
+  height:10px;
+  background:#70c489;
+  border-bottom-right-radius:300px;
+  box-shadow:3px 3px 0px 3px #e8e8e8;
+}
+
+/* 右侧内凹圆弧（Uiverse 的 ::after） */
+.src-pill.active::after{
+  content:"";
+  position:absolute;
+  right:-10px;
+  bottom:0;
+  width:10px;
+  height:10px;
+  background:#70c489;
+  border-bottom-left-radius:300px;
+  box-shadow:-3px 3px 0px 3px #e8e8e8;
+}
+
+/* hover 反馈（非 active） */
+.src-pill:hover:not(.active){
+  color:#fff;
+  opacity:1;
+}
+
+/* active 的 hover 保持深色文字 */
+.src-pill.active:hover{
+  color:#1d1d29;
 }
 
 @media(min-width:640px){
-  .src-swiper{height:70px}
-  .src-pill{width:118px;height:44px}
-  .src-pill.active{font-size:16px}
+  .src-swiper{height:78px}
+  .src-pill{width:112px;height:44px}
+  .src-pill.active{font-size:15px}
 }
 
 /* ============================================================

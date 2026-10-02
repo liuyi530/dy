@@ -23,6 +23,7 @@
       <div class="src-menu" id="srcMenu">
         <button class="src-item active" data-source="cilixiong">磁力熊</button>
         <button class="src-item" data-source="xiaomifeng">小蜜蜂</button>
+        <button class="src-item" data-source="feikuai">飞快TV</button>
         <button class="src-item" data-source="ffzy">非凡资源</button>
         <button class="src-item" data-source="netflix">奈飞</button>
         <button class="src-item" data-source="flixflop">飞流视频</button>
@@ -343,7 +344,151 @@ playList.push({
   }
 },
 
+/* ------------------------ 飞快TV ------------------------ */
+feikuai: {
+  name: '飞快TV',
+  base: 'https://feikuai.in',
 
+  getSearchUrl: function(kw, page){
+    page = page || 1;
+    return this.base + '/vodsearch/' + encodeURIComponent(kw) +
+           '----------' + page + '---.html?mx_search_scope=in';
+  },
+  getSearchUrlGet: function(kw, page){
+    return this.getSearchUrl(kw, page);
+  },
+  getSearchOptions: function(kw){
+    return { method: 'GET' };
+  },
+
+  parseList: function(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const list = [];
+    const seen = new Set();
+
+    doc.querySelectorAll('div.module-card-item.module-item').forEach(card => {
+      const titleA = card.querySelector('.module-card-item-title a');
+      if(!titleA) return;
+      const href = titleA.getAttribute('href') || '';
+      if(!href || seen.has(href)) return;
+
+      const nameEl = titleA.querySelector('strong');
+      const name = nameEl ? nameEl.textContent.trim() : titleA.textContent.trim();
+      if(!name) return;
+      seen.add(href);
+
+      const img = card.querySelector('.module-item-pic img');
+      let cover = '';
+      if(img){
+        cover = img.getAttribute('data-original')
+             || img.getAttribute('data-remote')
+             || img.getAttribute('data-local')
+             || img.getAttribute('data-fallback')
+             || '';
+      }
+
+      const infoEl = card.querySelector('.module-info-item-content');
+      const info = infoEl ? infoEl.textContent.trim() : '';
+      const noteEl = card.querySelector('.module-item-note');
+      const note = noteEl ? noteEl.textContent.trim() : '';
+      const doubanEl = card.querySelector('.module-item-douban');
+      const rank = doubanEl ? doubanEl.textContent.trim() : '';
+      const vodId = (href.match(/\/voddetail\/(\d+)/) || [])[1] || '';
+
+      list.push({
+        name,
+        year: info,
+        rank,
+        status: note,
+        cover: abs(cover, this.base),
+        href: abs('/vodplay/' + vodId + '-1-1.html', this.base)
+      });
+    });
+
+    let currentPage = 1, totalPages = 1, totalCount = list.length;
+    const meta = doc.querySelector('#paging-meta');
+    if(meta){
+      currentPage = parseInt(meta.getAttribute('data-page') || '1', 10) || 1;
+      totalPages  = parseInt(meta.getAttribute('data-total') || '1', 10) || 1;
+    }
+    const ajaxTotal = doc.querySelector('#ajax-total');
+    const macTotal  = doc.querySelector('.mac_total');
+    const totalText = (ajaxTotal && ajaxTotal.textContent.trim())
+                   || (macTotal  && macTotal.textContent.trim()) || '';
+    const n = parseInt(totalText, 10);
+    if(!isNaN(n)) totalCount = n;
+
+    const kw = pageState.currentKeyword || '';
+    let prevUrl = '', nextUrl = '';
+    if(currentPage > 1) prevUrl = this.getSearchUrl(kw, currentPage - 1);
+    if(currentPage < totalPages) nextUrl = this.getSearchUrl(kw, currentPage + 1);
+
+    return {
+      list, prevUrl, nextUrl,
+      hasPrev: currentPage > 1,
+      hasMore: currentPage < totalPages,
+      currentPage, totalPages, totalCount
+    };
+  },
+
+  parseDetail: function(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    let cover = '';
+    const imgEl = doc.querySelector('.module-item-pic img, .detail-pic img');
+    if(imgEl) cover = abs(imgEl.getAttribute('data-original') || imgEl.getAttribute('src'), this.base);
+
+    const playList = [];
+    const seen = new Set();
+
+    const jsonScript = doc.querySelector('#fk-online-download-data');
+    if(jsonScript){
+      try {
+        const data = JSON.parse(jsonScript.textContent);
+        (data.sources || []).forEach(src => {
+          const lineName = src.show || ('线路' + src.sid);
+          (src.episodes || []).forEach(ep => {
+            const url = ep.url || '';
+            if(!url || seen.has(url)) return;
+            seen.add(url);
+            playList.push({
+              lineName,
+              epName: ep.name || ('第' + ep.nid + '集'),
+              vodId: String(data.vodId || ''),
+              playFrom: src.from || '',
+              index: String(ep.nid || ''),
+              url
+            });
+          });
+        });
+      } catch(e) {
+        console.warn('飞快TV JSON 解析失败：', e);
+      }
+    }
+
+    if(playList.length === 0){
+      const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
+      if(m){
+        try {
+          const cfg = JSON.parse(m[1]);
+          if(cfg && cfg.url){
+            let realUrl = cfg.url;
+            try { realUrl = atob(cfg.url); } catch(e){}
+            playList.push({
+              lineName: '当前线路',
+              epName: '当前集',
+              vodId: String(cfg.id || ''),
+              playFrom: cfg.from || '',
+              index: String(cfg.nid || ''),
+              url: realUrl
+            });
+          }
+        } catch(e){}
+      }
+    }
+
+    return { cover, magnets: [], playPageUrl: '', playList };
+  }
+},
 
   /* ------------------------ 非凡资源 ------------------------ */
   ffzy: {

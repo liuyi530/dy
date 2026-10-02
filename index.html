@@ -1125,6 +1125,152 @@ function destroyHls(){
   }
 }
 
+/* ============================================================
+   横屏手势：左侧 8% 亮度 / 右侧 8% 音量
+   ============================================================ */
+(function initGestureControl(){
+  const EDGE_RATIO = 0.08;
+  const HUD_SHOW_MS = 800;
+
+  let brightness = 1;
+  let volume     = 1;
+
+  let gestureActive = false;
+  let gestureSide   = null;
+  let startY = 0, startValue = 0;
+  let hudTimer = null;
+
+  function ensureHud(container){
+    let left  = container.querySelector('.gesture-hud.left');
+    let right = container.querySelector('.gesture-hud.right');
+    if(!left){
+      left = document.createElement('div');
+      left.className = 'gesture-hud left';
+      left.innerHTML =
+        '<div class="hud-icon">☀</div>' +
+        '<div class="hud-bar"><div class="hud-fill"></div></div>' +
+        '<div class="hud-num">100%</div>';
+      container.appendChild(left);
+    }
+    if(!right){
+      right = document.createElement('div');
+      right.className = 'gesture-hud right';
+      right.innerHTML =
+        '<div class="hud-icon">🔊</div>' +
+        '<div class="hud-bar"><div class="hud-fill"></div></div>' +
+        '<div class="hud-num">100%</div>';
+      container.appendChild(right);
+    }
+    return { left, right };
+  }
+
+  function applyBrightness(v){
+    brightness = Math.min(1, Math.max(0.1, v));
+    const video  = document.getElementById('playerVideo');
+    const iframe = document.getElementById('playerIframe');
+    if(video)  video.style.filter  = 'brightness(' + brightness + ')';
+    if(iframe) iframe.style.filter = 'brightness(' + brightness + ')';
+  }
+
+  function applyVolume(v){
+    volume = Math.min(1, Math.max(0, v));
+    const video = document.getElementById('playerVideo');
+    if(video){
+      video.volume = volume;
+      video.muted  = (volume === 0);
+    }
+  }
+
+  function updateHud(side){
+    const container = document.getElementById('playerContainer');
+    if(!container) return;
+    const { left, right } = ensureHud(container);
+    const hud = side === 'left' ? left : right;
+    const val = side === 'left' ? brightness : volume;
+    const pct = Math.round(val * 100);
+
+    hud.querySelector('.hud-fill').style.height = pct + '%';
+    hud.querySelector('.hud-num').textContent   = pct + '%';
+    hud.querySelector('.hud-icon').textContent = side === 'left'
+      ? (pct > 66 ? '☀' : pct > 33 ? '⛅' : '☁')
+      : (pct === 0 ? '🔇' : pct < 50 ? '🔉' : '🔊');
+
+    hud.classList.add('show');
+
+    clearTimeout(hudTimer);
+    hudTimer = setTimeout(() => {
+      left.classList.remove('show');
+      right.classList.remove('show');
+    }, HUD_SHOW_MS);
+  }
+
+  function onTouchStart(e){
+    if(window.innerWidth <= window.innerHeight) return;
+
+    const container = document.getElementById('playerContainer');
+    if(!container || container.style.display === 'none') return;
+
+    const t = e.touches[0];
+    const w = window.innerWidth;
+    const edge = w * EDGE_RATIO;
+
+    if(t.clientX <= edge){
+      gestureSide = 'left';
+      startValue = brightness;
+    } else if(t.clientX >= w - edge){
+      gestureSide = 'right';
+      startValue = volume;
+    } else {
+      return;
+    }
+
+    gestureActive = true;
+    startY = t.clientY;
+  }
+
+  function onTouchMove(e){
+    if(!gestureActive) return;
+
+    const t  = e.touches[0];
+    const dy = startY - t.clientY;
+    const h  = window.innerHeight;
+    const delta = dy / (h * 0.6);
+    const next  = startValue + delta;
+
+    if(gestureSide === 'left'){
+      applyBrightness(next);
+      updateHud('left');
+    } else {
+      applyVolume(next);
+      updateHud('right');
+    }
+
+    e.preventDefault();
+  }
+
+  function onTouchEnd(){
+    if(!gestureActive) return;
+    gestureActive = false;
+    gestureSide = null;
+  }
+
+  function bind(){
+    const container = document.getElementById('playerContainer');
+    if(!container || container.__gestureBound) return;
+    container.__gestureBound = true;
+
+    container.addEventListener('touchstart',  onTouchStart, { passive: true });
+    container.addEventListener('touchmove',   onTouchMove,  { passive: false });
+    container.addEventListener('touchend',    onTouchEnd);
+    container.addEventListener('touchcancel', onTouchEnd);
+  }
+
+  setInterval(bind, 600);
+
+  window.__applyBrightness = applyBrightness;
+  window.__applyVolume     = applyVolume;
+})();
+
 function startHlsPlayer(videoUrl){
   const container = $('#playerContainer');
   const video = $('#playerVideo');

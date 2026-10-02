@@ -263,7 +263,8 @@ xiaomifeng: {
     const doc = new DOMParser().parseFromString(html, 'text/html');
 
     let cover = '';
-    const imgEl = doc.querySelector('.detail-card img, .vod-detail img');
+    let imgEl = doc.querySelector('.detail-card img, .vod-detail img, .detail-pic img');
+if(!imgEl) imgEl = doc.querySelector('img');
     if(imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
 
     // 线路名（按 source-tab 出现顺序）
@@ -984,29 +985,29 @@ function playWithIframe(iframeSrc){
   iframe.style.display = 'block';
 
   // ★ 小蜜蜂：裁剪 iframe，只留播放器区域
-  if (currentSource === 'xiaomifeng') {
-    container.classList.add('vodplay-mode');
-    container.style.position = 'relative';
-    container.style.overflow = 'hidden';
-    iframe.style.position = 'absolute';
-    iframe.style.top = '-120px';
-    iframe.style.left = '0';
-    iframe.style.width = '100%';
-    iframe.style.height = 'calc(100% + 240px)';
-    iframe.style.border = 'none';
-  } else {
-    // 其他源：恢复默认
-    container.classList.remove('vodplay-mode');
-    container.style.position = '';
-    container.style.overflow = '';
-    iframe.style.position = '';
-    iframe.style.top = '';
-    iframe.style.left = '';
-    iframe.style.width = '100%';
-    iframe.style.height = '100%';
-    iframe.style.border = 'none';
-  }
-
+// ★ 小蜜蜂：裁剪 iframe，只留播放器区域
+if (currentSource === 'xiaomifeng') {
+  container.classList.add('vodplay-mode');
+  container.style.position = 'relative';
+  container.style.overflow = 'hidden';
+  iframe.style.position = 'absolute';
+  iframe.style.top = '-400px';
+  iframe.style.left = '0';
+  iframe.style.width = '100%';
+  iframe.style.height = 'calc(100% + 800px)';
+  iframe.style.border = 'none';
+} else {
+  // 其他源：恢复默认
+  container.classList.remove('vodplay-mode');
+  container.style.position = '';
+  container.style.overflow = '';
+  iframe.style.position = '';
+  iframe.style.top = '';
+  iframe.style.left = '';
+  iframe.style.width = '100%';
+  iframe.style.height = '100%';
+  iframe.style.border = 'none';
+}
   iframe.src = iframeSrc;
 }
 
@@ -1487,7 +1488,7 @@ async function openDetail(item){
           <div class="paddr ok" id="paddr">已载入播放节点</div>
           <div class="player-container" id="playerContainer">
             <video id="playerVideo" controls playsinline webkit-playsinline></video>
-            <iframe id="playerIframe" allowfullscreen allow="autoplay; encrypted-media; fullscreen" scrolling="no" referrerpolicy="no-referrer" style="display:none;width:100%;height:100%;border:none;"></iframe>
+            <iframe id="playerIframe" allowfullscreen allow="autoplay; encrypted-media; fullscreen" scrolling="no" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" style="display:none;width:100%;height:100%;border:none;"></iframe>
           </div>
           <div class="ep-controls">
             <button class="btn-ep" id="btnPrevEp">⏮ 上一集</button>
@@ -1626,13 +1627,12 @@ if (currentSource === 'xiaomifeng') {
         paddr.className = 'paddr ok';
         paddr.textContent = rawUrl;
     }
-    // 用代理中转，防止 X-Frame-Options 拦截
-    const proxiedIframe = CONFIG.relay + encodeURIComponent(rawUrl + '?iframe=1');
+    // 直接交给代理，proxy.js 里已用 isVodplay 自动识别并加 iframe 响应头
+    const proxiedIframe = CONFIG.relay + encodeURIComponent(rawUrl);
     playWithIframe(proxiedIframe);
     $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
     return;
-}
-// ★★★ 小蜜蜂分支结束 ★★★
+}// ★★★ 小蜜蜂分支结束 ★★★
            
 
     if (MEDIA_RE.test(rawUrl)) {

@@ -33,7 +33,7 @@ body{
   -webkit-backdrop-filter:blur(14px);
   background:rgba(14,17,22,.82);
   border-bottom:1px solid var(--line);
-  padding:0px 14px 10px;
+  padding:0 0 10px;                    /* ← 左右 14px → 0 */
   animation:fadeDown .5s ease;
 }
 
@@ -747,9 +747,9 @@ body{
    ============================================================ */
 .searchrow {
   display: flex;
-  gap: 8px;
+  gap: 12px;                           /* 输入框离按钮远一点 */
   align-items: center;
-  padding: 6px 8px 6px 4px;
+  padding: 6px 8px 6px 5px;            /* 左5 / 右8 */
 }
 
 .searchrow input {

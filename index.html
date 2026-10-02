@@ -2108,6 +2108,13 @@ function switchSource(src){
     { src:'jiexi',      name:'视频解析' }
   ];
 
+
+/* ★ 创建绿色导轨（固定不动，撑满屏幕） */
+if(!swiper.querySelector('.src-rail')){
+  const rail = document.createElement('div');
+  rail.className = 'src-rail';
+  swiper.insertBefore(rail, track);
+}
   track.innerHTML = SRC_LIST.map(o =>
     `<button class="src-pill" data-source="${o.src}">${o.name}</button>`
   ).join('');

@@ -641,3 +641,82 @@ button.loading .btxt{display:none}
   max-width:80vw;text-align:center;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+
+
+/* 片源横滑选择器 */
+.src-swiper{
+  position:relative;
+  width:100%;
+  height:56px;
+  overflow:hidden;
+  margin-bottom:10px;
+  /* 左右渐隐遮罩，让两侧项自然淡出 */
+  -webkit-mask-image:linear-gradient(90deg, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  mask-image:linear-gradient(90deg, transparent 0%, #000 18%, #000 82%, transparent 100%);
+  touch-action:pan-x;
+}
+.src-track{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  height:100%;
+  padding:0 8px;
+  transition:transform .35s cubic-bezier(.22,.8,.28,1);
+  will-change:transform;
+  cursor:grab;
+  user-select:none;
+}
+.src-track.dragging{
+  transition:none;
+  cursor:grabbing;
+}
+.src-pill{
+  flex:0 0 auto;
+  background:var(--card);
+  border:1px solid var(--line);
+  color:var(--sub);
+  padding:8px 16px;
+  border-radius:999px;
+  font-size:13px;
+  font-weight:600;
+  white-space:nowrap;
+  cursor:pointer;
+  transition:transform .35s cubic-bezier(.22,.8,.28,1),
+             font-size .35s cubic-bezier(.22,.8,.28,1),
+             color .35s, background .35s, border-color .35s, box-shadow .35s;
+  transform-origin:center center;
+  /* 默认（非中心、非邻近）状态：小字、暗色 */
+  transform:scale(.78);
+  opacity:.55;
+}
+
+/* 邻近项（左右各一） */
+.src-pill.near{
+  transform:scale(.9);
+  opacity:.8;
+  font-size:13px;
+}
+
+/* 中心项 */
+.src-pill.active{
+  background:linear-gradient(135deg,var(--main),var(--main2));
+  border-color:transparent;
+  color:#04150f;
+  transform:scale(1.12);
+  opacity:1;
+  font-size:15px;
+  font-weight:800;
+  box-shadow:0 6px 18px rgba(32,201,151,.35);
+}
+
+/* 邻近项加一点视觉区别 */
+.src-pill.near.active{
+  /* 不会同时出现，占位 */
+}
+
+@media(min-width:640px){
+  .src-swiper{height:60px}
+  .src-pill{padding:9px 18px;font-size:13px}
+  .src-pill.active{font-size:16px}
+}

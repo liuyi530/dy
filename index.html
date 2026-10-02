@@ -284,12 +284,17 @@ if(!imgEl) imgEl = doc.querySelector('img');
         if(!href || seen.has(href)) return;
         seen.add(href);
 
-        const epName = (a.textContent || '').trim() || '正片';
-        playList.push({
-          lineName,
-          epName,
-          url: abs(href, this.base)
-        });
+const epName = (a.textContent || '').trim() || '正片';
+const m = href.match(/\/vodplay\/(\d+)-([^-]+)-(\d+)\.html/);
+if(!m) return;
+playList.push({
+  lineName,
+  epName,
+  vodId: m[1],
+  playFrom: m[2],
+  index: m[3],
+  url: abs(href, this.base)
+});
       });
     });
 
@@ -984,20 +989,6 @@ function playWithIframe(iframeSrc){
   container.style.display = 'block';
   iframe.style.display = 'block';
 
-  // ★ 小蜜蜂：裁剪 iframe，只留播放器区域
-// ★ 小蜜蜂：裁剪 iframe，只留播放器区域
-if (currentSource === 'xiaomifeng') {
-  container.classList.add('vodplay-mode');
-  container.style.position = 'relative';
-  container.style.overflow = 'hidden';
-  iframe.style.position = 'absolute';
-  iframe.style.top = '-10%';
-  iframe.style.left = '0';
-  iframe.style.width = '100%';
-  iframe.style.height = '120%';
-  iframe.style.border = 'none';
-} else {
-  // 其他源：恢复默认
   container.classList.remove('vodplay-mode');
   container.style.position = '';
   container.style.overflow = '';
@@ -1007,7 +998,7 @@ if (currentSource === 'xiaomifeng') {
   iframe.style.width = '100%';
   iframe.style.height = '100%';
   iframe.style.border = 'none';
-}
+
   iframe.src = iframeSrc;
 }
 
@@ -1617,24 +1608,49 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
         if (prevBtn) prevBtn.disabled = (epIndex <= 0);
         if (nextBtn) nextBtn.disabled = (epIndex >= total - 1);
     };
-    updateEpBtns();
     
-        
-     // ★★★ 小蜜蜂：直接把 vodplay 地址交给 iframe，借用它的播放器 ★★★
+    
+    // ★★★ 小蜜蜂：调 /api/play-url 拿真实 m3u8，用自己播放器 ★★★
 if (currentSource === 'xiaomifeng') {
+    const cur = window._currentPlayList[epIndex];
+    if(!cur || !cur.vodId){
+        toast('缺少播放参数');
+        return;
+    }
     if (playerBox) playerBox.style.display = 'block';
     if (paddr) {
-        paddr.className = 'paddr ok';
-        paddr.textContent = rawUrl;
+        paddr.className = 'paddr probing';
+        paddr.textContent = '正在获取播放地址…';
     }
-    // 直接交给代理，proxy.js 里已用 isVodplay 自动识别并加 iframe 响应头
-    const proxiedIframe = CONFIG.relay + encodeURIComponent(rawUrl);
-    playWithIframe(proxiedIframe);
-    $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+    try {
+        const apiUrl = 'https://www.xmfyy.com/api/play-url'
+            + '?vodId=' + cur.vodId
+            + '&playFrom=' + cur.playFrom
+            + '&index=' + cur.index;
+        const json = await requestUrl(apiUrl);
+        const data = JSON.parse(json);
+        if(!data || !data.url){
+            if(paddr){ paddr.className='paddr fail'; paddr.textContent='接口未返回播放地址'; }
+            toast('接口未返回播放地址');
+            return;
+        }
+        if (paddr) {
+            paddr.className = 'paddr ok';
+            paddr.textContent = data.url;
+        }
+        startHlsPlayer(data.url);
+        $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+    } catch(e) {
+        console.error(e);
+        toast('获取播放地址失败：' + e.message);
+    }
     return;
-}// ★★★ 小蜜蜂分支结束 ★★★
-           
-
+}
+// ★★★ 小蜜蜂分支结束 ★★★
+    
+    
+    updateEpBtns();
+    
     if (MEDIA_RE.test(rawUrl)) {
         if (playerBox) playerBox.style.display = 'block';
         if (paddr) {

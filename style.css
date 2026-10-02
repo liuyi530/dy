@@ -641,9 +641,3 @@ button.loading .btxt{display:none}
   max-width:80vw;text-align:center;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-
-/* 小蜜蜂 iframe 裁剪专用 */
-.player-container.vodplay-mode {
-  height: 260px;
-  aspect-ratio: auto;
-}

@@ -802,38 +802,44 @@ body{
   display: none !important;
 }
 /* ============ 横屏手势调节 亮度/音量 ============ */
-/* 状态条 */
 .gesture-hud {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
   width: 56px;
   padding: 14px 0;
-  background: rgba(0,0,0,.65);
+  background: rgba(0,0,0,.72);
   border-radius: 12px;
-  display: none;
+
+  /* ★ 用 opacity + visibility，不用 display，保证实时重绘 */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .18s ease, visibility .18s;
+
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  z-index: 30;
+  z-index: 9999;              /* ★ 拉高，盖住视频 */
   pointer-events: none;
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
-  transition: opacity .25s;
+  will-change: opacity;
 }
 .gesture-hud.left  { left: 12px; }
 .gesture-hud.right { right: 12px; }
-.gesture-hud.show  { display: flex; }
+.gesture-hud.show  {
+  opacity: 1;
+  visibility: visible;
+}
 
-/* 图标 */
 .gesture-hud .hud-icon {
   font-size: 18px;
   line-height: 1;
   color: #fff;
 }
 
-/* 竖向进度条 */
 .gesture-hud .hud-bar {
   width: 8px;
   height: 120px;
@@ -842,18 +848,17 @@ body{
   overflow: hidden;
   position: relative;
   display: flex;
-  flex-direction: column-reverse; /* 从下往上长 */
+  flex-direction: column-reverse;
 }
 .gesture-hud .hud-fill {
   width: 100%;
   height: 0%;
   background: var(--main);
   border-radius: 6px;
-  transition: height .08s linear;
+  transition: height .06s linear;
 }
 .gesture-hud.right .hud-fill { background: var(--play); }
 
-/* 百分比数字 */
 .gesture-hud .hud-num {
   font-size: 12px;
   font-weight: 700;
@@ -863,5 +868,8 @@ body{
   text-align: center;
 }
 
-/* 让 .player-container 成为定位参照 */
-.player-container { position: relative; }
+/* ★ 让容器成为定位参照，并允许 HUD 溢出显示 */
+.player-container {
+  position: relative;
+  overflow: hidden;
+}

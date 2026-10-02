@@ -1130,7 +1130,7 @@ function destroyHls(){
    ============================================================ */
 (function initGestureControl(){
   const EDGE_RATIO = 0.08;
-  const HUD_SHOW_MS = 800;
+  const HUD_SHOW_MS = 900;
 
   let brightness = 1;
   let volume     = 1;
@@ -1164,12 +1164,19 @@ function destroyHls(){
     return { left, right };
   }
 
+  /* ★ 关键修改：filter 加到 .player-container 上，而不是 video 上 */
   function applyBrightness(v){
     brightness = Math.min(1, Math.max(0.1, v));
-    const video  = document.getElementById('playerVideo');
-    const iframe = document.getElementById('playerIframe');
-    if(video)  video.style.filter  = 'brightness(' + brightness + ')';
-    if(iframe) iframe.style.filter = 'brightness(' + brightness + ')';
+    const container = document.getElementById('playerContainer');
+    if(container){
+      // 对容器整体调暗（不含 HUD，因为 HUD 会单独设 filter:none）
+      container.style.filter = 'brightness(' + brightness + ')';
+      // 反向补偿 HUD，让它亮度正常
+      const huds = container.querySelectorAll('.gesture-hud');
+      huds.forEach(h => {
+        h.style.filter = 'brightness(' + (1 / brightness) + ')';
+      });
+    }
   }
 
   function applyVolume(v){
@@ -1181,6 +1188,7 @@ function destroyHls(){
     }
   }
 
+  /* ★ 关键修改：用 opacity 而不是 display，避免不重绘 */
   function updateHud(side){
     const container = document.getElementById('playerContainer');
     if(!container) return;
@@ -1194,6 +1202,9 @@ function destroyHls(){
     hud.querySelector('.hud-icon').textContent = side === 'left'
       ? (pct > 66 ? '☀' : pct > 33 ? '⛅' : '☁')
       : (pct === 0 ? '🔇' : pct < 50 ? '🔉' : '🔊');
+
+    // 强制重排，让样式立即生效
+    void hud.offsetWidth;
 
     hud.classList.add('show');
 

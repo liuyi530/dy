@@ -46,7 +46,7 @@ export async function onRequest(context) {
 
   const isIframeReq = u.searchParams.get('iframe') === '1';
   // ★ 新增：小蜜蜂 vodplay 播放页，也当作 iframe 请求处理
-const isVodplay = /xmfyy\.com\/vodplay\//i.test(targetUrl.href);
+
 
   // 前端可指定 Header（可选）
   const customReferer = request.headers.get('x-target-referer') || '';
@@ -181,8 +181,8 @@ const isVodplay = /xmfyy\.com\/vodplay\//i.test(targetUrl.href);
     const body = await resp.arrayBuffer();
     if (ct) headers.set('Content-Type', ct);
 
-// iframe 嵌入（视频解析 / 小蜜蜂 vodplay 用）
-if (isIframeReq || isVodplay) {
+// iframe 嵌入（视频解析用）
+if (isIframeReq) {
   headers.set('X-Frame-Options', 'ALLOWALL');
   headers.set('Content-Security-Policy', "frame-ancestors *");
   headers.set('Access-Control-Allow-Origin', ALLOW_ORIGIN);

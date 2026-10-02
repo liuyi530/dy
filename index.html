@@ -2038,136 +2038,190 @@ $$('.src-pill').forEach(function(b){
 }
 
 /* ============================================================
-   片源横滑选择器
+   片源横滑选择器（无限循环 + 中间大 / 左右中 / 再外小）
    ============================================================ */
 (function initSrcSwiper(){
+  const swiper = $('#srcSwiper');
   const track = $('#srcTrack');
-  if(!track) return;
+  if(!swiper || !track) return;
+
+  const SRC_LIST = [
+    { src:'cilixiong', name:'磁力熊' },
+    { src:'xiaomifeng', name:'小蜜蜂' },
+    { src:'feikuai',    name:'飞快TV' },
+    { src:'ffzy',       name:'非凡资源' },
+    { src:'netflix',    name:'奈飞' },
+    { src:'flixflop',   name:'飞流视频' },
+    { src:'jiexi',      name:'视频解析' }
+  ];
+
+  const REAL_LEN = SRC_LIST.length;
+  const CLONE_N = 3;
+
+  const fullList = [
+    ...SRC_LIST.slice(-CLONE_N).map(o => ({ ...o, _clone:true })),
+    ...SRC_LIST,
+    ...SRC_LIST.slice(0, CLONE_N).map(o => ({ ...o, _clone:true }))
+  ];
+
+  track.innerHTML = fullList.map(o =>
+    `<button class="src-pill" data-source="${o.src}" data-clone="${o._clone ? '1' : '0'}">${o.name}</button>`
+  ).join('');
+
   const pills = Array.prototype.slice.call(track.querySelectorAll('.src-pill'));
-  if(!pills.length) return;
 
-  let activeIndex = Math.max(0, pills.findIndex(p => p.dataset.source === currentSource));
-  if(activeIndex < 0) activeIndex = 0;
+  let activeReal = Math.max(0, SRC_LIST.findIndex(o => o.src === currentSource));
+  if(activeReal < 0) activeReal = 0;
+  let activePhys = CLONE_N + activeReal;
 
-  /* 计算并应用每个 pill 的类名 + 位置偏移 */
-  function layout(animate){
-    const wrapW = track.parentElement.clientWidth;
-    const activeEl = pills[activeIndex];
-    if(!activeEl) return;
-
-    // 中心项
+  function applyClasses(){
     pills.forEach((p, i) => {
-      p.classList.toggle('active', i === activeIndex);
-      p.classList.toggle('near', Math.abs(i - activeIndex) === 1);
+      const d = i - activePhys;
+      p.classList.toggle('active', d === 0);
+      p.classList.toggle('near', Math.abs(d) === 1);
     });
+  }
 
-    // 让 active 居中：先算出 active 的中心位置
-    // 用 offsetLeft + offsetWidth/2 得中心，再减去 wrapW/2
-    const activeCenter = activeEl.offsetLeft + activeEl.offsetWidth / 2;
-    const offset = wrapW / 2 - activeCenter;
+  function calcOffset(){
+    const wrapW = swiper.clientWidth;
+    const el = pills[activePhys];
+    if(!el) return 0;
+    const centerInTrack = el.offsetLeft + el.offsetWidth / 2;
+    return wrapW / 2 - centerInTrack;
+  }
 
-    track.style.transition = animate ? '' : 'none';
-    track.style.transform = 'translateX(' + offset + 'px)';
+  function layout(animate){
+    applyClasses();
+    const offset = calcOffset();
     if(!animate){
-      // 强制 reflow 后恢复 transition
+      track.style.transition = 'none';
+      track.style.transform = 'translateX(' + offset + 'px)';
       void track.offsetWidth;
       track.style.transition = '';
+    } else {
+      track.style.transition = '';
+      track.style.transform = 'translateX(' + offset + 'px)';
     }
   }
 
-  /* 切换片源 */
-  function setActive(index){
-    if(index < 0) index = 0;
-    if(index >= pills.length) index = pills.length - 1;
-    if(index === activeIndex){
-      layout(true);
-      return;
+  function recenterIfNeeded(){
+    if(activePhys >= CLONE_N + REAL_LEN){
+      const over = activePhys - (CLONE_N + REAL_LEN);
+      activePhys = CLONE_N + over;
+      layout(false);
+      return true;
     }
-    activeIndex = index;
-    layout(true);
-    const src = pills[activeIndex].dataset.source;
-    if(src !== currentSource){
-      switchSource(src);
+    if(activePhys < CLONE_N){
+      const over = activePhys;
+      activePhys = CLONE_N + REAL_LEN - CLONE_N + over;
+      layout(false);
+      return true;
     }
+    return false;
   }
 
-  /* 点击直接切换（不做"点击即选中"的复杂逻辑，简单直接） */
+  function setActive(physIndex, animate){
+    if(physIndex < 0 || physIndex >= pills.length) return;
+    activePhys = physIndex;
+    let realIdx;
+    if(activePhys < CLONE_N){
+      realIdx = REAL_LEN - CLONE_N + activePhys;
+    } else if(activePhys >= CLONE_N + REAL_LEN){
+      realIdx = activePhys - (CLONE_N + REAL_LEN);
+    } else {
+      realIdx = activePhys - CLONE_N;
+    }
+    const newSrc = SRC_LIST[realIdx].src;
+    if(newSrc !== currentSource){
+      activeReal = realIdx;
+      switchSource(newSrc);
+    }
+    layout(animate !== false);
+    recenterIfNeeded();
+  }
+
   pills.forEach((p, i) => {
     p.addEventListener('click', function(e){
       e.stopPropagation();
-      setActive(i);
+      setActive(i, true);
     });
   });
 
-  /* --- 拖动逻辑 --- */
   let dragging = false;
   let startX = 0;
   let startOffset = 0;
-  let currentOffset = 0;
+  let curOffset = 0;
   let moved = false;
+  let lastDelta = 0;
 
-  function getCurrentOffset(){
+  function getCurrentTransformX(){
     const m = track.style.transform.match(/translateX\((-?[\d.]+)px\)/);
     return m ? parseFloat(m[1]) : 0;
   }
 
-  function onDown(clientX){
+  function onDown(x){
     dragging = true;
     moved = false;
-    startX = clientX;
-    startOffset = getCurrentOffset();
-    currentOffset = startOffset;
+    startX = x;
+    startOffset = getCurrentTransformX();
+    curOffset = startOffset;
+    track.style.transition = 'none';
     track.classList.add('dragging');
   }
 
-  function onMove(clientX){
+  function onMove(x){
     if(!dragging) return;
-    const dx = clientX - startX;
+    const dx = x - startX;
     if(Math.abs(dx) > 4) moved = true;
-    currentOffset = startOffset + dx;
-    track.style.transform = 'translateX(' + currentOffset + 'px)';
+    lastDelta = dx;
+    curOffset = startOffset + dx;
+    track.style.transform = 'translateX(' + curOffset + 'px)';
   }
 
   function onUp(){
     if(!dragging) return;
     dragging = false;
     track.classList.remove('dragging');
+    track.style.transition = '';
 
-    if(!moved){
-      // 没移动，说明是点击，不处理（click 事件已处理）
+    if(Math.abs(lastDelta) < 40){
       layout(true);
       return;
     }
-
-    // 判断滑动方向，切换一个片源
-    const dx = currentOffset - startOffset;
-    const threshold = 40; // 拖动阈值
-    if(dx < -threshold){
-      setActive(activeIndex + 1);
-    } else if(dx > threshold){
-      setActive(activeIndex - 1);
-    } else {
-      layout(true);
-    }
+    const dir = lastDelta < 0 ? 1 : -1;
+    const step = pills[0] ? (pills[0].offsetWidth + 14) : 100;
+    let steps = Math.round(Math.abs(lastDelta) / step);
+    if(steps < 1) steps = 1;
+    setActive(activePhys + dir * steps, true);
   }
 
   track.addEventListener('mousedown', e => { e.preventDefault(); onDown(e.clientX); });
   window.addEventListener('mousemove', e => onMove(e.clientX));
   window.addEventListener('mouseup', onUp);
 
-  track.addEventListener('touchstart', e => {
-    onDown(e.touches[0].clientX);
-  }, { passive:true });
-  track.addEventListener('touchmove', e => {
-    onMove(e.touches[0].clientX);
-  }, { passive:true });
+  track.addEventListener('touchstart', e => { onDown(e.touches[0].clientX); }, { passive:true });
+  track.addEventListener('touchmove',  e => { onMove(e.touches[0].clientX); }, { passive:true });
   track.addEventListener('touchend', onUp);
+  track.addEventListener('touchcancel', onUp);
 
-  /* 窗口大小变化时重新居中 */
-  window.addEventListener('resize', () => layout(false));
+  let resizeTimer = null;
+  window.addEventListener('resize', function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function(){ layout(false); }, 120);
+  });
 
-  /* 初始化 */
-  requestAnimationFrame(() => layout(false));
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      layout(false);
+    });
+  });
+
+  window.__srcSwiperSet = function(src){
+    const realIdx = SRC_LIST.findIndex(o => o.src === src);
+    if(realIdx < 0) return;
+    activeReal = realIdx;
+    setActive(CLONE_N + realIdx, true);
+  };
 })();
 
 window.addEventListener('popstate', function(){

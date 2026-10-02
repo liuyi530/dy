@@ -583,10 +583,7 @@ button.loading .btxt{display:none}
   cursor:grab;
   user-select:none;
 }
-.src-track.dragging{
-  cursor:grabbing;
-  transition:none !important;
-}
+
 
 /* 基础 pill：固定宽度 + 缩放，让居中计算稳定 */
 .src-pill{

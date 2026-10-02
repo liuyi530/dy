@@ -2030,7 +2030,7 @@ function switchSource(src){
 }
 
 /* ============================================================
-   片源横滑选择器（中间大 / 左右中 / 再外小；手势切换；到头就停）
+   片源横滑选择器（中间大 / 左右中 / 再外小；手势切换；active 永远居中）
    ============================================================ */
 (function initSrcSwiper(){
   const swiper = document.getElementById('srcSwiper');
@@ -2069,40 +2069,36 @@ function switchSource(src){
     });
   }
 
-  /* ★ 用 paddingLeft/Right 让 active 居中（不用 translateX） */
-  function applyCenterPadding(){
+  /* ★ 用 translateX 让 active 永远居中 */
+  function applyCenterOffset(withAnimation){
     const wrapW = swiper.clientWidth;
     const el = pills[activeIdx];
     if(!el) return;
 
-    const elW = el.getBoundingClientRect().width;
+    /* active 在 track 布局坐标系里的中心位置（offsetLeft 不受 transform 影响） */
+    const activeCenterInTrack = el.offsetLeft + el.offsetWidth / 2;
 
-    let leftSum = 0;
-    for(let i = 0; i < activeIdx; i++){
-      leftSum += pills[i].offsetWidth + 14;   /* 14 = gap */
+    /* 目标位移 = 屏幕中心 - active 在 track 里的中心 */
+    const offset = wrapW / 2 - activeCenterInTrack;
+
+    if(withAnimation){
+      track.style.transition = 'transform .35s cubic-bezier(.22,.8,.28,1)';
+    } else {
+      track.style.transition = 'none';
     }
-    const padL = Math.max(0, wrapW / 2 - elW / 2 - leftSum);
-
-    let rightSum = 0;
-    for(let i = activeIdx + 1; i < N; i++){
-      rightSum += pills[i].offsetWidth + 14;
-    }
-    const padR = Math.max(0, wrapW / 2 - elW / 2 - rightSum);
-
-    track.style.paddingLeft  = padL + 'px';
-    track.style.paddingRight = padR + 'px';
+    track.style.transform = 'translateX(' + offset + 'px)';
   }
 
-  function layout(){
+  function layout(withAnimation){
     applyClasses();
-    applyCenterPadding();
+    applyCenterOffset(withAnimation !== false);
   }
 
   function setActive(idx){
     if(idx < 0) idx = 0;
     if(idx >= N) idx = N - 1;
     if(idx === activeIdx){
-      layout();
+      layout(true);
       return;
     }
     activeIdx = idx;
@@ -2110,7 +2106,7 @@ function switchSource(src){
     if(newSrc !== currentSource){
       switchSource(newSrc);
     }
-    layout();
+    layout(true);
   }
 
   /* 点击 pill 切换 */
@@ -2128,7 +2124,6 @@ function switchSource(src){
   function onDown(x, y){
     tracking = true; fired = false;
     startX = x; startY = y;
-    track.classList.add('dragging');
   }
 
   function onMove(x, y){
@@ -2150,7 +2145,6 @@ function switchSource(src){
 
   function onUp(){
     tracking = false; fired = false;
-    track.classList.remove('dragging');
   }
 
   track.addEventListener('mousedown', e => { e.preventDefault(); onDown(e.clientX, e.clientY); });
@@ -2171,19 +2165,21 @@ function switchSource(src){
   let resizeTimer = null;
   window.addEventListener('resize', function(){
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(layout, 120);
+    resizeTimer = setTimeout(function(){ layout(false); }, 120);
   });
 
-  /* 初始化 */
+  /* 初始化：无动画布局 */
   requestAnimationFrame(function(){
-    requestAnimationFrame(layout);
+    requestAnimationFrame(function(){
+      layout(false);
+    });
   });
 
   window.__srcSwiperSet = function(src){
     const idx = SRC_LIST.findIndex(o => o.src === src);
     if(idx < 0) return;
     activeIdx = idx;
-    layout();
+    layout(true);
   };
 })();
 

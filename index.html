@@ -10,26 +10,17 @@
 <body>
 
 <div class="topbar">
-  <div class="title-row">
-    <div class="title">
-      <span class="dot"></span>
-      影视快捷搜索
-    </div>
-    <div class="src-dropdown" id="srcDropdown">
-      <button class="src-toggle" id="srcToggle">
-        <span class="src-name" id="srcName">磁力熊</span>
-        <span class="src-arrow">▼</span>
-      </button>
-      <div class="src-menu" id="srcMenu">
-        <button class="src-item active" data-source="cilixiong">磁力熊</button>
-        <button class="src-item" data-source="xiaomifeng">小蜜蜂</button>
-        <button class="src-item" data-source="feikuai">飞快TV</button>
-        <button class="src-item" data-source="ffzy">非凡资源</button>
-        <button class="src-item" data-source="netflix">奈飞</button>
-        <button class="src-item" data-source="flixflop">飞流视频</button>
-        <button class="src-item" data-source="jiexi">视频解析</button>
-      </div>
-    </div>
+<div class="src-swiper" id="srcSwiper">
+  <div class="src-track" id="srcTrack">
+    <button class="src-pill" data-source="cilixiong">磁力熊</button>
+    <button class="src-pill" data-source="xiaomifeng">小蜜蜂</button>
+    <button class="src-pill" data-source="feikuai">飞快TV</button>
+    <button class="src-pill" data-source="ffzy">非凡资源</button>
+    <button class="src-pill" data-source="netflix">奈飞</button>
+    <button class="src-pill" data-source="flixflop">飞流视频</button>
+    <button class="src-pill" data-source="jiexi">视频解析</button>
+  </div>
+</div>
   </div>
   <div class="searchrow">
     <input id="kw" type="text" placeholder="电影名称" autocomplete="off">
@@ -2009,9 +2000,9 @@ function switchSource(src){
   currentSource = src;
   searchToken++;
 
-  $$('.src-item').forEach(function(b){
-    b.classList.toggle('active', b.dataset.source === src);
-  });
+$$('.src-pill').forEach(function(b){
+  b.classList.toggle('active', b.dataset.source === src);
+});
 
   if(src === 'jiexi'){
     $('#srcName').textContent = '视频解析';
@@ -2046,23 +2037,138 @@ function switchSource(src){
   }
 }
 
-$$('.src-item').forEach(function(btn){
-  btn.addEventListener('click', function(e){
-    e.stopPropagation();
-    switchSource(btn.dataset.source);
-    $('#srcDropdown').classList.remove('open');
+/* ============================================================
+   片源横滑选择器
+   ============================================================ */
+(function initSrcSwiper(){
+  const track = $('#srcTrack');
+  if(!track) return;
+  const pills = Array.prototype.slice.call(track.querySelectorAll('.src-pill'));
+  if(!pills.length) return;
+
+  let activeIndex = Math.max(0, pills.findIndex(p => p.dataset.source === currentSource));
+  if(activeIndex < 0) activeIndex = 0;
+
+  /* 计算并应用每个 pill 的类名 + 位置偏移 */
+  function layout(animate){
+    const wrapW = track.parentElement.clientWidth;
+    const activeEl = pills[activeIndex];
+    if(!activeEl) return;
+
+    // 中心项
+    pills.forEach((p, i) => {
+      p.classList.toggle('active', i === activeIndex);
+      p.classList.toggle('near', Math.abs(i - activeIndex) === 1);
+    });
+
+    // 让 active 居中：先算出 active 的中心位置
+    // 用 offsetLeft + offsetWidth/2 得中心，再减去 wrapW/2
+    const activeCenter = activeEl.offsetLeft + activeEl.offsetWidth / 2;
+    const offset = wrapW / 2 - activeCenter;
+
+    track.style.transition = animate ? '' : 'none';
+    track.style.transform = 'translateX(' + offset + 'px)';
+    if(!animate){
+      // 强制 reflow 后恢复 transition
+      void track.offsetWidth;
+      track.style.transition = '';
+    }
+  }
+
+  /* 切换片源 */
+  function setActive(index){
+    if(index < 0) index = 0;
+    if(index >= pills.length) index = pills.length - 1;
+    if(index === activeIndex){
+      layout(true);
+      return;
+    }
+    activeIndex = index;
+    layout(true);
+    const src = pills[activeIndex].dataset.source;
+    if(src !== currentSource){
+      switchSource(src);
+    }
+  }
+
+  /* 点击直接切换（不做"点击即选中"的复杂逻辑，简单直接） */
+  pills.forEach((p, i) => {
+    p.addEventListener('click', function(e){
+      e.stopPropagation();
+      setActive(i);
+    });
   });
-});
 
-$('#srcToggle').addEventListener('click', function(e){
-  e.stopPropagation();
-  $('#srcDropdown').classList.toggle('open');
-});
+  /* --- 拖动逻辑 --- */
+  let dragging = false;
+  let startX = 0;
+  let startOffset = 0;
+  let currentOffset = 0;
+  let moved = false;
 
-document.addEventListener('click', function(e){
-  const dd = $('#srcDropdown');
-  if(dd && !dd.contains(e.target)) dd.classList.remove('open');
-});
+  function getCurrentOffset(){
+    const m = track.style.transform.match(/translateX\((-?[\d.]+)px\)/);
+    return m ? parseFloat(m[1]) : 0;
+  }
+
+  function onDown(clientX){
+    dragging = true;
+    moved = false;
+    startX = clientX;
+    startOffset = getCurrentOffset();
+    currentOffset = startOffset;
+    track.classList.add('dragging');
+  }
+
+  function onMove(clientX){
+    if(!dragging) return;
+    const dx = clientX - startX;
+    if(Math.abs(dx) > 4) moved = true;
+    currentOffset = startOffset + dx;
+    track.style.transform = 'translateX(' + currentOffset + 'px)';
+  }
+
+  function onUp(){
+    if(!dragging) return;
+    dragging = false;
+    track.classList.remove('dragging');
+
+    if(!moved){
+      // 没移动，说明是点击，不处理（click 事件已处理）
+      layout(true);
+      return;
+    }
+
+    // 判断滑动方向，切换一个片源
+    const dx = currentOffset - startOffset;
+    const threshold = 40; // 拖动阈值
+    if(dx < -threshold){
+      setActive(activeIndex + 1);
+    } else if(dx > threshold){
+      setActive(activeIndex - 1);
+    } else {
+      layout(true);
+    }
+  }
+
+  track.addEventListener('mousedown', e => { e.preventDefault(); onDown(e.clientX); });
+  window.addEventListener('mousemove', e => onMove(e.clientX));
+  window.addEventListener('mouseup', onUp);
+
+  track.addEventListener('touchstart', e => {
+    onDown(e.touches[0].clientX);
+  }, { passive:true });
+  track.addEventListener('touchmove', e => {
+    onMove(e.touches[0].clientX);
+  }, { passive:true });
+  track.addEventListener('touchend', onUp);
+
+  /* 窗口大小变化时重新居中 */
+  window.addEventListener('resize', () => layout(false));
+
+  /* 初始化 */
+  requestAnimationFrame(() => layout(false));
+})();
 
 window.addEventListener('popstate', function(){
   if(detailOpen){

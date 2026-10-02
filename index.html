@@ -24,6 +24,7 @@
         <button class="src-item active" data-source="cilixiong">磁力熊</button>
         <button class="src-item" data-source="ffzy">非凡资源</button>
         <button class="src-item" data-source="netflix">奈飞</button>
+        <button class="src-item" data-source="flixflop">飞流视频</button>
         <button class="src-item" data-source="jiexi">视频解析</button>
       </div>
     </div>
@@ -58,7 +59,7 @@
 
 <script>
 /* ============================================================
-   全局配置与数据源定义
+   全局配置
    ============================================================ */
 const CONFIG = {
   relay: '/proxy?url=',
@@ -79,11 +80,17 @@ let pageState = {
   currentPage: 1,
   totalPages: 1,
   totalCount: 0,
-  currentKeyword: ''
+  currentKeyword: '',
+  // 飞流专用
+  flixLastRank: null,
+  flixAllList: []
 };
 
 const MEDIA_RE = /\.(m3u8|mp4|flv)(\?|#|$)/i;
 
+/* ============================================================
+   数据源
+   ============================================================ */
 const SOURCES = {
   /* ------------------------- 磁力熊 ------------------------- */
   cilixiong: {
@@ -424,7 +431,6 @@ const SOURCES = {
       };
     },
 
-    /* ★★★ 改动点 1：parseDetail 把线路名一起存进数据里 ★★★ */
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
 
@@ -471,11 +477,104 @@ const SOURCES = {
 
       return { cover, magnets: [], playPageUrl: '', playList };
     }
+  },
+
+  /* ------------------------ 飞流视频 ------------------------ */
+  flixflop: {
+    name: '飞流视频',
+    base: 'https://www.flixflop.com',
+    api: 'https://www.flixflop.com/api',
+
+    /* 搜索：直接调 API（第 1 页 rank=0） */
+    getSearchUrl: function(kw){
+      return this.api + '/v1/explore/search?query=' + encodeURIComponent(kw) + '&rank=0';
+    },
+    getSearchUrlGet: function(kw){
+      return this.getSearchUrl(kw);
+    },
+    getSearchOptions: function(kw){
+      return {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      };
+    },
+
+    /* 翻页：用 rank 游标 */
+    getNextPageUrl: function(kw, lastRank){
+      return this.api + '/v1/explore/search?query=' + encodeURIComponent(kw) + '&rank=' + lastRank;
+    },
+
+    /* 解析 JSON（搜索结果） */
+    parseList: function(text){
+      let obj;
+      try { obj = typeof text === 'string' ? JSON.parse(text) : text; }
+      catch(e){
+        return { list:[], totalCount:0, currentPage:1, totalPages:1, hasPrev:false, hasMore:false };
+      }
+      return this._parseListFromJson(obj);
+    },
+
+    _parseListFromJson: function(obj){
+      const data = obj.data || [];
+      const list = data.map(it => ({
+        name: it.title,
+        year: String(it.published_year || ''),
+        rank: it.remarks || '',
+        region: it.area || '',
+        cover: it.cover_image || '',
+        href: this.base + '/streams/' + it.video_id + '/detail',
+        _videoId: it.video_id,
+        _rank: it.rank,
+        _sources: it.sources || []      // 搜索结果已带播放地址
+      }));
+
+      const lastRank = data.length ? String(data[data.length - 1].rank) : null;
+
+      return {
+        list,
+        prevUrl:'', nextUrl:'',
+        hasPrev: false,
+        hasMore: data.length >= 10,      // 满 10 条认为还有下一页
+        currentPage: 1,
+        totalPages: 1,
+        totalCount: list.length,
+        _lastRank: lastRank
+      };
+    },
+
+    /* 详情：飞流在搜索结果里已经带了 sources，这里直接返回 */
+    parseDetail: function(html){
+      return { cover:'', magnets:[], playPageUrl:'', playList:[] };
+    },
+
+    /* 飞流专用：从 item._sources 展开播放列表 */
+    buildPlayListFromSources: function(sources){
+      const SOURCE_NAMES = {
+        '204817109715256315': '大陆',
+        '480834192939156104': '星空',
+        '481120574047781513': '正片'
+      };
+      const playList = [];
+      const seen = new Set();
+      (sources || []).forEach(src => {
+        const lineName = SOURCE_NAMES[src.source_id] || ('线路' + String(src.source_id).slice(-4));
+        (src.url || '').split('#').forEach(ep => {
+          const idx = ep.indexOf('$');
+          if (idx < 0) return;
+          const epName = ep.slice(0, idx).trim() || '正片';
+          const m3u8 = ep.slice(idx + 1).trim();
+          if (!m3u8 || !/\.m3u8/i.test(m3u8) || seen.has(m3u8)) return;
+          seen.add(m3u8);
+          playList.push({ lineName, epName, url: m3u8 });
+        });
+      });
+      return playList;
+    }
   }
 };
 
 /* ============================================================
-   通用工具函数
+   通用工具
    ============================================================ */
 const $  = s => document.querySelector(s);
 const $$ = s => Array.prototype.slice.call(document.querySelectorAll(s));
@@ -811,7 +910,7 @@ async function requestUrl(url){
 }
 
 /* ============================================================
-   UI 渲染与业务绑定
+   UI 渲染
    ============================================================ */
 function renderSkeleton(n){
   n = n || 8;
@@ -869,19 +968,25 @@ function createCardElement(it, index){
   return div;
 }
 
-function renderCards(list, keyword){
-  if(!list || !list.length){
-    renderEmpty('没有找到相关影片', keyword);
-    return;
+function renderCards(list, keyword, append){
+  if(!append){
+    if(!list || !list.length){
+      renderEmpty('没有找到相关影片', keyword);
+      return;
+    }
+    const contentBox = $('#content');
+    contentBox.innerHTML = '<div class="grid"></div><div class="pagination-box" id="paginationBox"></div>';
+    const grid = contentBox.querySelector('.grid');
+    list.forEach((it, i) => {
+      grid.appendChild(createCardElement(it, i));
+    });
+  } else {
+    const grid = $('#content').querySelector('.grid');
+    if(!grid) return;
+    list.forEach((it, i) => {
+      grid.appendChild(createCardElement(it, i));
+    });
   }
-
-  const contentBox = $('#content');
-  contentBox.innerHTML = '<div class="grid"></div><div class="pagination-box" id="paginationBox"></div>';
-  const grid = contentBox.querySelector('.grid');
-
-  list.forEach((it, i) => {
-    grid.appendChild(createCardElement(it, i));
-  });
 
   $('#stat').style.display = 'block';
   $('#stat').innerHTML = '[' + SOURCES[currentSource].name + '] 共 <b>' +
@@ -895,6 +1000,25 @@ function updatePaginationUI(){
   const box = $('#paginationBox');
   if(!box) return;
 
+  // 飞流视频：特殊分页 UI（"加载更多"按钮）
+  if(currentSource === 'flixflop'){
+    if(pageState.hasMore){
+      box.className = 'pagination-box';
+      box.innerHTML =
+        '<button class="btn-page" id="btnLoadMore">加载更多</button>' +
+        '<span class="page-info">已加载 <b>' + pageState.totalCount + '</b> 条</span>';
+      const moreBtn = $('#btnLoadMore');
+      if(moreBtn) moreBtn.onclick = function(){ loadMoreFlix(); };
+    } else {
+      box.className = 'pagination-box';
+      box.innerHTML = pageState.totalCount > 0
+        ? '<span style="font-size:12px;color:var(--sub)">— 已加载全部搜索结果 —</span>'
+        : '';
+    }
+    return;
+  }
+
+  // 其他源：原有上一页/下一页
   if(pageState.totalPages > 1 || pageState.hasPrev || pageState.hasMore){
     box.className = 'pagination-box';
     box.innerHTML =
@@ -1016,6 +1140,8 @@ async function doSearch(keyword){
   pageState.nextUrl = '';
   pageState.hasPrev = false;
   pageState.hasMore = false;
+  pageState.flixLastRank = null;
+  pageState.flixAllList = [];
 
   const btn = $('#btnSearch');
   btn.classList.add('loading');
@@ -1043,8 +1169,9 @@ async function doSearch(keyword){
     pageState.currentPage = result.currentPage || 1;
     pageState.totalPages  = result.totalPages || 1;
     pageState.totalCount  = result.totalCount || result.list.length;
+    pageState.flixLastRank = result._lastRank || null;
 
-    renderCards(result.list, keyword);
+    renderCards(result.list, keyword, false);
   }catch(e){
     console.error(e);
     if(myToken !== searchToken) return;
@@ -1052,6 +1179,46 @@ async function doSearch(keyword){
     renderError('请求失败：' + (e.message || '未知错误'), keyword);
   }finally{
     btn.classList.remove('loading');
+  }
+}
+
+/* 飞流专用：加载更多 */
+async function loadMoreFlix(){
+  if(currentSource !== 'flixflop') return;
+  if(!pageState.flixLastRank) {
+    toast('没有更多了');
+    return;
+  }
+
+  const src = SOURCES.flixflop;
+  const moreBtn = $('#btnLoadMore');
+  if(moreBtn){
+    moreBtn.disabled = true;
+    moreBtn.textContent = '加载中…';
+  }
+
+  try{
+    const url = src.getNextPageUrl(pageState.currentKeyword, pageState.flixLastRank);
+    const json = await requestUrl(url);
+    const result = src.parseList(json);
+
+    pageState.flixLastRank = result._lastRank || null;
+    pageState.hasMore = result.hasMore;
+    pageState.totalCount += result.list.length;
+
+    if(result.list.length){
+      renderCards(result.list, pageState.currentKeyword, true);
+    } else {
+      toast('没有更多了');
+      updatePaginationUI();
+    }
+  }catch(e){
+    console.error(e);
+    toast('加载失败：' + e.message);
+    if(moreBtn){
+      moreBtn.disabled = false;
+      moreBtn.textContent = '加载更多';
+    }
   }
 }
 
@@ -1073,7 +1240,7 @@ async function gotoPage(targetUrl){
     pageState.totalPages  = result.totalPages || 1;
     pageState.totalCount  = result.totalCount || result.list.length;
 
-    renderCards(result.list, pageState.currentKeyword);
+    renderCards(result.list, pageState.currentKeyword, false);
   }catch(e){
     console.error(e);
     toast('加载页面失败：' + e.message);
@@ -1115,24 +1282,34 @@ async function openDetail(item){
   $('#dBody').innerHTML = '<div class="empty" style="padding:30px 0">正在加载资源…</div>';
 
   try{
-    const html = await requestUrl(item.href);
-    if(!detailOpen) return;
+    let detailData;
 
-    const detailData = SOURCES[currentSource].parseDetail(html);
+    // ★ 飞流视频：直接用搜索结果里的 _sources，不请求详情页
+    if(currentSource === 'flixflop'){
+      const playList = SOURCES.flixflop.buildPlayListFromSources(item._sources);
+      detailData = {
+        cover: item.cover || '',
+        magnets: [],
+        playPageUrl: '',
+        playList
+      };
+    } else {
+      const html = await requestUrl(item.href);
+      if(!detailOpen) return;
+      detailData = SOURCES[currentSource].parseDetail(html);
+    }
 
     if(detailData.cover){
       $('#dThumb').style.backgroundImage = "url('" + detailData.cover + "')";
     }
 
-    /* ★★★ 改动点 2：分组严格按照 lineName，不再靠 idx / 50 猜测 ★★★ */
+    // 生成播放列表 HTML（统一走 line-group 折叠样式）
     let playListHtml = '';
-    if (currentSource === 'netflix' && detailData.playList && detailData.playList.length) {
+    if (detailData.playList && detailData.playList.length) {
       const groups = {};
       detailData.playList.forEach((p, idx) => {
         const lineName = p.lineName || '线路1';
-        if (!groups[lineName]) {
-          groups[lineName] = [];
-        }
+        if (!groups[lineName]) groups[lineName] = [];
         groups[lineName].push({ ...p, originalIndex: idx });
       });
 
@@ -1162,19 +1339,6 @@ async function openDetail(item){
                   </button>
                 `;
               }).join('')}
-            </div>
-          </div>
-        `;
-      }).join('');
-    } else if (detailData.playList && detailData.playList.length) {
-      playListHtml = detailData.playList.map((p, i) => {
-        return `
-          <div class="episode-item" style="animation-delay:${i * 30}ms">
-            <div class="fname" title="${escapeAttr(p.title || p.epName || '')}">${escapeHtml(p.title || p.epName || '')}</div>
-            <div class="row">
-              <div class="btns">
-                <button class="btn btn-open btn-play-ep" data-url="${escapeAttr(p.url)}" data-index="${i}">立即播放</button>
-              </div>
             </div>
           </div>
         `;
@@ -1308,7 +1472,6 @@ async function openDetail(item){
   }
 }
 
-/* 播放单集 */
 async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
     const playerBox = $('#playerBox');
     const paddr = $('#paddr');
@@ -1397,7 +1560,6 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
     toast('未解析到播放地址，无法播放');
 }
 
-/* ★★★ 改动点 3：上下集直接用 p.lineName / p.epName，不再用正则抠 ★★★ */
 async function playAdjacent(delta) {
     const list = window._currentPlayList;
     if (!list || list.length === 0) return;
@@ -1515,6 +1677,8 @@ function switchSource(src){
   pageState.currentPage = 1;
   pageState.totalPages = 1;
   pageState.totalCount = 0;
+  pageState.flixLastRank = null;
+  pageState.flixAllList = [];
 
   if(src === 'jiexi'){
     $('.searchrow').style.display = 'none';

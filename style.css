@@ -578,10 +578,10 @@ button.loading .btxt{display:none}
   gap:14px;
   height:100%;
   padding:0 12px;
+  position:relative;        /* ★ 新增：让 offsetLeft 相对 track 计算 */
   will-change:transform;
   cursor:grab;
   user-select:none;
-  /* transition 由 JS 控制 */
 }
 .src-track.dragging{
   cursor:grabbing;

@@ -2027,7 +2027,7 @@ function switchSource(src){
 }
 
 /* ============================================================
-   片源横滑选择器（中间大 / 左右中 / 再外小；到头就停）
+   片源横滑选择器（中间大 / 左右中 / 再外小；active 永远居中；到头就停）
    ============================================================ */
 (function initSrcSwiper(){
   const swiper = document.getElementById('srcSwiper');
@@ -2044,7 +2044,6 @@ function switchSource(src){
     { src:'jiexi',      name:'视频解析' }
   ];
 
-  /* 生成 7 个 pill，没有克隆 */
   track.innerHTML = SRC_LIST.map(o =>
     `<button class="src-pill" data-source="${o.src}">${o.name}</button>`
   ).join('');
@@ -2055,8 +2054,8 @@ function switchSource(src){
   let activeIdx = Math.max(0, SRC_LIST.findIndex(o => o.src === currentSource));
   if(activeIdx < 0) activeIdx = 0;
 
-  let baseOffset = 0;   // 目标位移
-  let dragDelta  = 0;   // 拖动增量
+  let baseOffset = 0;
+  let dragDelta  = 0;
 
   function applyClasses(){
     pills.forEach((p, i) => {
@@ -2065,40 +2064,24 @@ function switchSource(src){
     });
   }
 
-  /* 计算让 active 居中所需位移，两端夹住 */
+  /* ★ 给 track 加左右 padding，让第一个/最后一个也能被推到正中间 */
+  function updateTrackPadding(){
+    const wrapW = swiper.clientWidth;
+    const firstW = pills[0].offsetWidth;
+    const lastW  = pills[N - 1].offsetWidth;
+    const padL = Math.max(0, wrapW / 2 - firstW / 2);
+    const padR = Math.max(0, wrapW / 2 - lastW  / 2);
+    track.style.paddingLeft  = padL + 'px';
+    track.style.paddingRight = padR + 'px';
+  }
+
+  /* ★ 不再夹取，直接让 active 居中 */
   function calcTargetOffset(){
     const wrapW = swiper.clientWidth;
     const el = pills[activeIdx];
     if(!el) return 0;
-
-    const wrapRect = swiper.getBoundingClientRect();
-    const trackRect = track.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-
-    const elCenterInTrack = (elRect.left + elRect.width / 2) - trackRect.left;
-
-    const firstRect = pills[0].getBoundingClientRect();
-    const firstLeftInTrack = firstRect.left - trackRect.left;
-
-    const lastRect = pills[N - 1].getBoundingClientRect();
-    const lastRightInTrack = (lastRect.left + lastRect.width) - trackRect.left;
-
-    // 理想：active 居中
-    let offset = wrapW / 2 - elCenterInTrack;
-
-    // 左边不能露太多（第一个 pill 距左 12px）
-    const maxOffset = 12 - firstLeftInTrack;
-    // 右边不能露太多（最后一个 pill 距右 12px）
-    const minOffset = (wrapW - 12) - lastRightInTrack;
-
-    if(minOffset > maxOffset){
-      // 内容比容器窄，居中
-      offset = (minOffset + maxOffset) / 2;
-    } else {
-      if(offset > maxOffset) offset = maxOffset;
-      if(offset < minOffset) offset = minOffset;
-    }
-    return offset;
+    const elCenter = el.offsetLeft + el.offsetWidth / 2;
+    return wrapW / 2 - elCenter;
   }
 
   function applyTransform(withAnimation){
@@ -2107,6 +2090,7 @@ function switchSource(src){
   }
 
   function layout(withAnimation){
+    updateTrackPadding();     /* ★ 先保证 padding 是最新的 */
     applyClasses();
     baseOffset = calcTargetOffset();
     dragDelta  = 0;
@@ -2128,7 +2112,7 @@ function switchSource(src){
     layout(withAnimation !== false);
   }
 
-  /* 点击 pill 切换 */
+  /* 点击 */
   pills.forEach((p, i) => {
     p.addEventListener('click', function(e){
       e.stopPropagation();
@@ -2171,7 +2155,6 @@ function switchSource(src){
     const step = pills[0] ? (pills[0].offsetWidth + 14) : 114;
 
     if(Math.abs(lastDelta) < threshold){
-      // 回弹
       dragDelta = 0;
       applyTransform(true);
       return;
@@ -2181,7 +2164,7 @@ function switchSource(src){
     let steps = Math.max(1, Math.round(Math.abs(lastDelta) / step));
     let newIdx = activeIdx + dir * steps;
 
-    // 到头就停：自动 clamp 到 [0, N-1]
+    /* 到头就停 */
     if(newIdx < 0) newIdx = 0;
     if(newIdx >= N) newIdx = N - 1;
 
@@ -2203,14 +2186,13 @@ function switchSource(src){
     resizeTimer = setTimeout(function(){ layout(false); }, 120);
   });
 
-  /* 初始化 */
+  /* 初始化：等两帧确保字体/宽度算好 */
   requestAnimationFrame(function(){
     requestAnimationFrame(function(){
       layout(false);
     });
   });
 
-  /* 外部调用（比如 switchSource 想同步选中态） */
   window.__srcSwiperSet = function(src){
     const idx = SRC_LIST.findIndex(o => o.src === src);
     if(idx < 0) return;

@@ -531,11 +531,11 @@ body{
   border-radius:0.5rem;
 }
 
-/* 非 active：小尺寸、暗色，缩在导轨上 */
+/* 非 active：小尺寸 */
 .src-pill{
   flex:0 0 auto;
-  width:96px;
-  height:40px;
+  width:68px;               /* ← 96 → 68 */
+  height:38px;              /* ← 40 → 38 */
   display:flex;
   align-items:center;
   justify-content:center;
@@ -543,7 +543,7 @@ body{
   border:none;
   color:#0e1116;
   border-radius:0.5rem 0.5rem 0 0;
-  font-size:13px;
+  font-size:12px;
   font-weight:600;
   white-space:nowrap;
   cursor:pointer;
@@ -556,25 +556,25 @@ body{
              font-size .35s;
 }
 
-/* 邻近的一个：中等尺寸 */
+/* 邻近：中等尺寸 */
 .src-pill.near{
-  transform:scale(.88);
-  opacity:.8;
-  font-size:13px;
+  transform:scale(.9);
+  opacity:.85;
+  font-size:12px;
 }
 
-/* active：Uiverse 白底 + 左右内凹圆角 + 阴影衔接 */
+/* active：白底胶囊 + 内凹圆角 */
 .src-pill.active{
   background:#e8e8e8;
   color:#1d1d29;
-  transform:scale(1.08);
+  transform:scale(1.12);
   opacity:1;
-  font-size:14px;
+  font-size:13px;
   font-weight:700;
   box-shadow:0 -2px 12px rgba(0,0,0,.25);
 }
 
-/* 左侧内凹圆弧（Uiverse 的 ::before） */
+/* ::before / ::after 保持不变 */
 .src-pill.active::before{
   content:"";
   position:absolute;
@@ -586,8 +586,6 @@ body{
   border-bottom-right-radius:300px;
   box-shadow:3px 3px 0px 3px #e8e8e8;
 }
-
-/* 右侧内凹圆弧（Uiverse 的 ::after） */
 .src-pill.active::after{
   content:"";
   position:absolute;
@@ -600,21 +598,18 @@ body{
   box-shadow:-3px 3px 0px 3px #e8e8e8;
 }
 
-/* hover 反馈（非 active） */
 .src-pill:hover:not(.active){
   color:#fff;
   opacity:1;
 }
-
-/* active 的 hover 保持深色文字 */
 .src-pill.active:hover{
   color:#1d1d29;
 }
 
 @media(min-width:640px){
-  .src-swiper{height:78px}
-  .src-pill{width:112px;height:44px}
-  .src-pill.active{font-size:15px}
+  .src-swiper{height:92px}
+  .src-pill{width:84px;height:42px}
+  .src-pill.active{font-size:14px}
 }
 
 /* ============================================================

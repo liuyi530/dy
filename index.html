@@ -22,6 +22,7 @@
       </button>
       <div class="src-menu" id="srcMenu">
         <button class="src-item active" data-source="cilixiong">磁力熊</button>
+        <button class="src-item" data-source="xiaomifeng">小蜜蜂</button>
         <button class="src-item" data-source="ffzy">非凡资源</button>
         <button class="src-item" data-source="netflix">奈飞</button>
         <button class="src-item" data-source="flixflop">飞流视频</button>
@@ -199,6 +200,103 @@ const SOURCES = {
       return { magnets, playPageUrl, playList: [] };
     }
   },
+
+/* ------------------------ 小蜜蜂影院 ------------------------ */
+xiaomifeng: {
+  name: '小蜜蜂',
+  base: 'https://www.xmfyy.com',
+
+  getSearchUrl: function(kw){
+    return this.base + '/search?keyword=' + encodeURIComponent(kw);
+  },
+  getSearchUrlGet: function(kw){
+    return this.getSearchUrl(kw);
+  },
+  getSearchOptions: function(kw){
+    return { method: 'GET' };
+  },
+
+  parseList: function(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const list = [];
+    const seen = new Set();
+
+    doc.querySelectorAll('.search-item').forEach(item => {
+      const a = item.querySelector('a.search-item-poster');
+      if(!a) return;
+      const href = a.getAttribute('href') || '';
+      if(!href || seen.has(href)) return;
+
+      const img = item.querySelector('img');
+      let cover = '';
+      if(img) cover = img.getAttribute('src') || '';
+
+      let name = '';
+      if(img){
+        const alt = img.getAttribute('alt') || '';
+        name = alt.replace(/封面图片$/, '').trim();
+      }
+      if(!name){
+        const titleEl = item.querySelector('.search-item-title, h3, .title');
+        if(titleEl) name = titleEl.textContent.trim();
+      }
+      if(!name) return;
+
+      seen.add(href);
+      list.push({
+        name,
+        year: '',
+        rank: '',
+        cover: abs(cover, this.base),
+        href: abs(href, this.base)
+      });
+    });
+
+    return {
+      list,
+      prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
+      currentPage:1, totalPages:1, totalCount: list.length
+    };
+  },
+
+  parseDetail: function(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+    let cover = '';
+    const imgEl = doc.querySelector('.detail-card img, .vod-detail img');
+    if(imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
+
+    // 线路名（按 source-tab 出现顺序）
+    const lineNames = [];
+    doc.querySelectorAll('.source-tabs .source-tab').forEach(btn => {
+      lineNames.push((btn.textContent || '').trim() || ('线路' + (lineNames.length + 1)));
+    });
+
+    // 每线路集数（按 source-panel 顺序）
+    const playList = [];
+    const seen = new Set();
+
+    doc.querySelectorAll('.source-panel').forEach((panel, idx) => {
+      const lineName = lineNames[idx] || ('线路' + (idx + 1));
+      panel.querySelectorAll('a.episode-btn[href]').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        if(!href || seen.has(href)) return;
+        seen.add(href);
+
+        const epName = (a.textContent || '').trim() || '正片';
+        playList.push({
+          lineName,
+          epName,
+          url: abs(href, this.base)
+        });
+      });
+    });
+
+    return { cover, magnets: [], playPageUrl: '', playList };
+  }
+},
+
+
 
   /* ------------------------ 非凡资源 ------------------------ */
   ffzy: {
@@ -884,6 +982,31 @@ function playWithIframe(iframeSrc){
 
   container.style.display = 'block';
   iframe.style.display = 'block';
+
+  // ★ 小蜜蜂：裁剪 iframe，只留播放器区域
+  if (currentSource === 'xiaomifeng') {
+    container.classList.add('vodplay-mode');
+    container.style.position = 'relative';
+    container.style.overflow = 'hidden';
+    iframe.style.position = 'absolute';
+    iframe.style.top = '-120px';
+    iframe.style.left = '0';
+    iframe.style.width = '100%';
+    iframe.style.height = 'calc(100% + 240px)';
+    iframe.style.border = 'none';
+  } else {
+    // 其他源：恢复默认
+    container.classList.remove('vodplay-mode');
+    container.style.position = '';
+    container.style.overflow = '';
+    iframe.style.position = '';
+    iframe.style.top = '';
+    iframe.style.left = '';
+    iframe.style.width = '100%';
+    iframe.style.height = '100%';
+    iframe.style.border = 'none';
+  }
+
   iframe.src = iframeSrc;
 }
 
@@ -1494,6 +1617,23 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
         if (nextBtn) nextBtn.disabled = (epIndex >= total - 1);
     };
     updateEpBtns();
+    
+        
+     // ★★★ 小蜜蜂：直接把 vodplay 地址交给 iframe，借用它的播放器 ★★★
+if (currentSource === 'xiaomifeng') {
+    if (playerBox) playerBox.style.display = 'block';
+    if (paddr) {
+        paddr.className = 'paddr ok';
+        paddr.textContent = rawUrl;
+    }
+    // 用代理中转，防止 X-Frame-Options 拦截
+    const proxiedIframe = CONFIG.relay + encodeURIComponent(rawUrl + '?iframe=1');
+    playWithIframe(proxiedIframe);
+    $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+}
+// ★★★ 小蜜蜂分支结束 ★★★
+           
 
     if (MEDIA_RE.test(rawUrl)) {
         if (playerBox) playerBox.style.display = 'block';

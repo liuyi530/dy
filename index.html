@@ -514,33 +514,43 @@ const SOURCES = {
       return this._parseListFromJson(obj);
     },
 
-    _parseListFromJson: function(obj){
-      const data = obj.data || [];
-      const list = data.map(it => ({
-        name: it.title,
-        year: String(it.published_year || ''),
-        rank: it.remarks || '',
-        region: it.area || '',
-        cover: it.cover_image || '',
-        href: this.base + '/streams/' + it.video_id + '/detail',
-        _videoId: it.video_id,
-        _rank: it.rank,
-        _sources: it.sources || []      // 搜索结果已带播放地址
-      }));
+_parseListFromJson: function(obj){
+  const data = obj.data || [];
+  const list = data
+    .filter(it => {
+      // ★ 只过滤"电影解说"
+      const cat = String(it.category || '');
+      const title = String(it.title || '');
+      if (cat === '电影解说') return false;
+      if (/\[电影解说\]/.test(title)) return false;
+      return true;
+    })
+    .map(it => ({
+      name: it.title,
+      year: String(it.published_year || ''),
+      rank: it.remarks || '',
+      region: it.area || '',
+      cover: it.cover_image || '',
+      href: this.base + '/streams/' + it.video_id + '/detail',
+      _videoId: it.video_id,
+      _rank: it.rank,
+      _sources: it.sources || []
+    }));
 
-      const lastRank = data.length ? String(data[data.length - 1].rank) : null;
+  // ★ 分页游标和 hasMore 用原始 data（不能过滤，否则翻页会错）
+  const lastRank = data.length ? String(data[data.length - 1].rank) : null;
 
-      return {
-        list,
-        prevUrl:'', nextUrl:'',
-        hasPrev: false,
-        hasMore: data.length >= 10,      // 满 10 条认为还有下一页
-        currentPage: 1,
-        totalPages: 1,
-        totalCount: list.length,
-        _lastRank: lastRank
-      };
-    },
+  return {
+    list,
+    prevUrl:'', nextUrl:'',
+    hasPrev: false,
+    hasMore: data.length >= 10,
+    currentPage: 1,
+    totalPages: 1,
+    totalCount: list.length,
+    _lastRank: lastRank
+  };
+},
 
     /* 详情：飞流在搜索结果里已经带了 sources，这里直接返回 */
     parseDetail: function(html){

@@ -214,19 +214,12 @@ getSearchUrl: function(kw, page, sort){
       const href = a.getAttribute('href') || '';
       if(!href || seen.has(href)) return;
 
-      const img = item.querySelector('img');
-      let cover = '';
-      if(img) cover = img.getAttribute('src') || '';
+      const cover = pickAttr(item, 'img', 'src');
 
       let name = '';
-      if(img){
-        const alt = img.getAttribute('alt') || '';
-        name = alt.replace(/封面图片$/, '').trim();
-      }
-      if(!name){
-        const titleEl = item.querySelector('.search-item-title, h3, .title');
-        if(titleEl) name = titleEl.textContent.trim();
-      }
+      const alt = pickAttr(item, 'img', 'alt');
+      if(alt) name = alt.replace(/封面图片$/, '').trim();
+      if(!name) name = pickText(item, '.search-item-title, h3, .title');
       if(!name) return;
 
       seen.add(href);
@@ -286,10 +279,7 @@ getSearchUrl: function(kw, page, sort){
   parseDetail: function(html){
     const doc = new DOMParser().parseFromString(html, 'text/html');
 
-    let cover = '';
-    let imgEl = doc.querySelector('.detail-card img, .vod-detail img, .detail-pic img');
-if(!imgEl) imgEl = doc.querySelector('img');
-    if(imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
+    let cover = abs(pickAttr(doc, '.detail-card img, .vod-detail img, .detail-pic img, img', 'src'), this.base);
 
     // 线路名（按 source-tab 出现顺序）
     const lineNames = [];
@@ -359,22 +349,12 @@ feikuai: {
       if(!name) return;
       seen.add(href);
 
-      const img = card.querySelector('.module-item-pic img');
-      let cover = '';
-      if(img){
-        cover = img.getAttribute('data-original')
-             || img.getAttribute('data-remote')
-             || img.getAttribute('data-local')
-             || img.getAttribute('data-fallback')
-             || '';
-      }
+      const cover = pickAttr(card, '.module-item-pic img',
+        'data-original,data-remote,data-local,data-fallback,src');
 
-      const infoEl = card.querySelector('.module-info-item-content');
-      const info = infoEl ? infoEl.textContent.trim() : '';
-      const noteEl = card.querySelector('.module-item-note');
-      const note = noteEl ? noteEl.textContent.trim() : '';
-      const doubanEl = card.querySelector('.module-item-douban');
-      const rank = doubanEl ? doubanEl.textContent.trim() : '';
+      const info = pickText(card, '.module-info-item-content');
+      const note = pickText(card, '.module-item-note');
+      const rank = pickText(card, '.module-item-douban');
       const vodId = (href.match(/\/voddetail\/(\d+)/) || [])[1] || '';
 
       list.push({
@@ -393,10 +373,7 @@ feikuai: {
       currentPage = parseInt(meta.getAttribute('data-page') || '1', 10) || 1;
       totalPages  = parseInt(meta.getAttribute('data-total') || '1', 10) || 1;
     }
-    const ajaxTotal = doc.querySelector('#ajax-total');
-    const macTotal  = doc.querySelector('.mac_total');
-    const totalText = (ajaxTotal && ajaxTotal.textContent.trim())
-                   || (macTotal  && macTotal.textContent.trim()) || '';
+    const totalText = pickText(doc, '#ajax-total, .mac_total');
     const n = parseInt(totalText, 10);
     if(!isNaN(n)) totalCount = n;
 
@@ -415,9 +392,7 @@ feikuai: {
 
   parseDetail: function(html){
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    let cover = '';
-    const imgEl = doc.querySelector('.module-item-pic img, .detail-pic img');
-    if(imgEl) cover = abs(imgEl.getAttribute('data-original') || imgEl.getAttribute('src'), this.base);
+    let cover = abs(pickAttr(doc, '.module-item-pic img, .detail-pic img', 'data-original,src'), this.base);
 
     const playList = [];
     const seen = new Set();
@@ -540,23 +515,9 @@ feikuai: {
 
       const pageBox = doc.querySelector('.pages') || doc.querySelector('.page') || doc.querySelector('.kscont');
       if(pageBox){
-        const prevA = pageBox.querySelector('a[title="上一页"]');
-        if(prevA){
-          const phref = prevA.getAttribute('href') || '';
-          if(phref && !phref.includes('javascript:') && phref !== '#'){
-            prevUrl = abs(phref, this.base);
-            hasPrev = true;
-          }
-        }
-
-        const nextA = pageBox.querySelector('a[title="下一页"]');
-        if(nextA){
-          const nhref = nextA.getAttribute('href') || '';
-          if(nhref && !nhref.includes('javascript:') && nhref !== '#'){
-            nextUrl = abs(nhref, this.base);
-            hasMore = true;
-          }
-        }
+        const links = parseAnchorPageInfo(pageBox, this.base);
+        if(links.prevUrl){ prevUrl = links.prevUrl; hasPrev = true; }
+        if(links.nextUrl){ nextUrl = links.nextUrl; hasMore = true; }
 
         const statSpan = pageBox.querySelector('span.disabled') || pageBox;
         const text = statSpan ? (statSpan.textContent || '') : '';
@@ -583,9 +544,7 @@ feikuai: {
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
 
-      let cover = '';
-      const imgEl = doc.querySelector('.left img') || doc.querySelector('.vodImg img');
-      if(imgEl) cover = abs(imgEl.getAttribute('src'), this.base);
+      let cover = abs(pickAttr(doc, '.left img, .vodImg img', 'src'), this.base);
 
       const playList = [];
       const seen = new Set();
@@ -636,11 +595,7 @@ parseList: function(html){
   const list = [];
   const seen = new Set();
 
-  const pickCover = (scope) => {
-    const img = scope.querySelector ? scope.querySelector('.detail-pic img') || scope.querySelector('img') : null;
-    if(!img) return '';
-    return img.getAttribute('data-src') || img.getAttribute('src') || '';
-  };
+  const pickCover = (scope) => pickAttr(scope, '.detail-pic img, img', 'data-src,src');
 
   /* ---------- ① 解析列表 ---------- */
   const boxes = doc.querySelectorAll('.public-list-box');
@@ -651,17 +606,15 @@ parseList: function(html){
       const href = a.getAttribute('href') || '';
       if(!href || seen.has(href)) return;
 
-      const titleEl = box.querySelector('.slide-info-title') || box.querySelector('h3');
-      const name = titleEl ? titleEl.textContent.trim() : '';
+      const name = pickText(box, '.slide-info-title, h3');
       if(!name) return;
       seen.add(href);
 
-      const noteEl = box.querySelector('.public-list-prb') ||
-                     box.querySelector('.slide-info-remarks');
+      const year = pickText(box, '.public-list-prb, .slide-info-remarks');
 
       list.push({
         name,
-        year: noteEl ? noteEl.textContent.trim() : '',
+        year,
         rank: '',
         cover: abs(pickCover(box), this.base),
         href: abs(href, this.base)
@@ -677,16 +630,15 @@ parseList: function(html){
       const href = a.getAttribute('href') || '';
       if(!href || seen.has(href)) return;
 
-      const titleEl = box.querySelector('.slide-info-title') || box.querySelector('h3');
-      const name = titleEl ? titleEl.textContent.trim() : '';
+      const name = pickText(box, '.slide-info-title, h3');
       if(!name) return;
       seen.add(href);
 
-      const noteEl = box.querySelector('.slide-info-remarks');
+      const year = pickText(box, '.slide-info-remarks');
 
       list.push({
         name,
-        year: noteEl ? noteEl.textContent.trim() : '',
+        year,
         rank: '',
         cover: abs(pickCover(box), this.base),
         href: abs(href, this.base)
@@ -705,10 +657,7 @@ parseList: function(html){
                     a.closest('li') ||
                     a.parentElement || a;
 
-      const titleEl = scope.querySelector
-        ? (scope.querySelector('.slide-info-title') || scope.querySelector('h3'))
-        : null;
-      const name = titleEl ? titleEl.textContent.trim() : a.textContent.trim();
+      const name = pickText(scope, '.slide-info-title, h3') || a.textContent.trim();
       if(!name || name.length > 60) return;
       seen.add(href);
 
@@ -753,20 +702,9 @@ parseList: function(html){
   }
 
   /* 上一页 / 下一页 URL */
-  const prevA = doc.querySelector('.page-info a[title="上一页"]');
-  if(prevA){
-    const phref = prevA.getAttribute('href') || '';
-    if(phref && !phref.includes('javascript:')){
-      prevUrl = abs(phref, this.base);
-    }
-  }
-  const nextA = doc.querySelector('.page-info a[title="下一页"]');
-  if(nextA){
-    const nhref = nextA.getAttribute('href') || '';
-    if(nhref && !nhref.includes('javascript:')){
-      nextUrl = abs(nhref, this.base);
-    }
-  }
+  const links = parseAnchorPageInfo(doc, this.base);
+  prevUrl = links.prevUrl;
+  nextUrl = links.nextUrl;
 
   const hasPrev = currentPage > 1;
   const hasMore = currentPage < totalPages;
@@ -788,46 +726,8 @@ parseList: function(html){
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');
 
-      let cover = '';
-      const imgEl = doc.querySelector('.detail-pic img') || doc.querySelector('.vodImg img');
-      if(imgEl) cover = abs(imgEl.getAttribute('data-src') || imgEl.getAttribute('src'), this.base);
-
-      const tabs = doc.querySelectorAll('.vod-playerUrl');
-      const boxes = doc.querySelectorAll('.anthology-list-box');
-
-      const playList = [];
-      const seen = new Set();
-
-      const total = Math.max(tabs.length, boxes.length);
-
-      for(let i = 0; i < total; i++){
-        let lineName = '';
-        if(tabs[i]){
-          const clone = tabs[i].cloneNode(true);
-          clone.querySelectorAll('.badge, i').forEach(el => el.remove());
-          lineName = (clone.textContent || '').replace(/\s+/g, ' ').trim();
-        }
-        if(!lineName) lineName = '线路' + (i + 1);
-
-        const box = boxes[i];
-        if(!box) continue;
-
-        box.querySelectorAll('a[href*="/vodplay/"]').forEach(a => {
-          const href = a.getAttribute('href') || '';
-          if(!href || seen.has(href)) return;
-          seen.add(href);
-
-          const sp = a.querySelector('span');
-          let epName = sp ? sp.textContent.trim() : (a.textContent || '').trim();
-          if(!epName) epName = '正片';
-
-          playList.push({
-            lineName: lineName,
-            epName: epName,
-            url: abs(href, this.base)
-          });
-        });
-      }
+      const cover = abs(pickAttr(doc, '.detail-pic img, .vodImg img', 'data-src,src'), this.base);
+      const playList = parseTabBoxPlayList(doc, this.base);
 
       return { cover, magnets: [], playPageUrl: '', playList };
     }
@@ -966,6 +866,87 @@ function abs(url, base){
   if(url.startsWith('//')) return 'https:' + url;
   return base + (url.startsWith('/') ? '' : '/') + url;
 }
+
+/* ---------- ★ B 方案小工具 ---------- */
+/* 依次尝试多个选择器，返回第一个非空文本 */
+function pickText(scope, selectors){
+  if(!scope) return '';
+  const list = String(selectors).split(',').map(s => s.trim());
+  for(const sel of list){
+    const el = scope.querySelector(sel);
+    if(el){
+      const t = (el.textContent || '').trim();
+      if(t) return t;
+    }
+  }
+  return '';
+}
+
+/* 依次尝试多个选择器 + 多个属性，返回第一个非空值 */
+function pickAttr(scope, selectors, attrs){
+  if(!scope) return '';
+  const selList  = String(selectors).split(',').map(s => s.trim());
+  const attrList = String(attrs).split(',').map(s => s.trim());
+  for(const sel of selList){
+    const el = scope.querySelector(sel);
+    if(!el) continue;
+    for(const attr of attrList){
+      const v = el.getAttribute(attr);
+      if(v && v.trim()) return v.trim();
+    }
+  }
+  return '';
+}
+
+/* 拿"上一页 / 下一页"两个链接（从 a[title]） */
+function parseAnchorPageInfo(scope, base){
+  let prevUrl = '', nextUrl = '';
+  const prevA = scope.querySelector('a[title="上一页"]');
+  if(prevA){
+    const h = prevA.getAttribute('href') || '';
+    if(h && !h.includes('javascript:') && h !== '#') prevUrl = abs(h, base);
+  }
+  const nextA = scope.querySelector('a[title="下一页"]');
+  if(nextA){
+    const h = nextA.getAttribute('href') || '';
+    if(h && !h.includes('javascript:') && h !== '#') nextUrl = abs(h, base);
+  }
+  return { prevUrl, nextUrl };
+}
+
+/* 拿"tab + box"结构的线路/集数（奈飞详情页用） */
+function parseTabBoxPlayList(doc, base){
+  const tabs  = doc.querySelectorAll('.vod-playerUrl');
+  const boxes = doc.querySelectorAll('.anthology-list-box');
+  const playList = [];
+  const seen = new Set();
+  const total = Math.max(tabs.length, boxes.length);
+
+  for(let i = 0; i < total; i++){
+    let lineName = '';
+    if(tabs[i]){
+      const clone = tabs[i].cloneNode(true);
+      clone.querySelectorAll('.badge, i').forEach(el => el.remove());
+      lineName = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+    }
+    if(!lineName) lineName = '线路' + (i + 1);
+
+    const box = boxes[i];
+    if(!box) continue;
+
+    box.querySelectorAll('a[href*="/vodplay/"]').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if(!href || seen.has(href)) return;
+      seen.add(href);
+      const sp = a.querySelector('span');
+      let epName = sp ? sp.textContent.trim() : (a.textContent || '').trim();
+      if(!epName) epName = '正片';
+      playList.push({ lineName, epName, url: abs(href, base) });
+    });
+  }
+  return playList;
+}
+/* ---------- ★ B 方案小工具结束 ---------- */
 
 function fetchWithTimeout(url, options, timeout){
   timeout = timeout || CONFIG.timeout;

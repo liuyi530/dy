@@ -631,77 +631,159 @@ feikuai: {
       return { method: 'GET' };
     },
 
-    parseList: function(html){
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const list = [];
-      const seen = new Set();
+parseList: function(html){
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const list = [];
+  const seen = new Set();
 
-      const pickCover = (scope) => {
-        const img = scope.querySelector ? scope.querySelector('.detail-pic img') || scope.querySelector('img') : null;
-        if(!img) return '';
-        return img.getAttribute('data-src') || img.getAttribute('src') || '';
-      };
+  const pickCover = (scope) => {
+    const img = scope.querySelector ? scope.querySelector('.detail-pic img') || scope.querySelector('img') : null;
+    if(!img) return '';
+    return img.getAttribute('data-src') || img.getAttribute('src') || '';
+  };
 
-      const boxes = doc.querySelectorAll('.public-list-box');
-      if(boxes.length){
-        boxes.forEach(box => {
-          const a = box.querySelector('a[href*="/voddetail/"]');
-          if(!a) return;
-          const href = a.getAttribute('href') || '';
-          if(!href || seen.has(href)) return;
+  /* ---------- ① 解析列表 ---------- */
+  const boxes = doc.querySelectorAll('.public-list-box');
+  if(boxes.length){
+    boxes.forEach(box => {
+      const a = box.querySelector('a[href*="/voddetail/"]');
+      if(!a) return;
+      const href = a.getAttribute('href') || '';
+      if(!href || seen.has(href)) return;
 
-          const titleEl = box.querySelector('.slide-info-title') || box.querySelector('h3');
-          const name = titleEl ? titleEl.textContent.trim() : '';
-          if(!name) return;
+      const titleEl = box.querySelector('.slide-info-title') || box.querySelector('h3');
+      const name = titleEl ? titleEl.textContent.trim() : '';
+      if(!name) return;
+      seen.add(href);
 
-          seen.add(href);
+      const noteEl = box.querySelector('.public-list-prb') ||
+                     box.querySelector('.slide-info-remarks');
 
-          const noteEl = box.querySelector('.public-list-prb') ||
-                         box.querySelector('.slide-info-remarks');
+      list.push({
+        name,
+        year: noteEl ? noteEl.textContent.trim() : '',
+        rank: '',
+        cover: abs(pickCover(box), this.base),
+        href: abs(href, this.base)
+      });
+    });
+  }
 
-          list.push({
-            name,
-            year: noteEl ? noteEl.textContent.trim() : '',
-            rank: '',
-            cover: abs(pickCover(box), this.base),
-            href: abs(href, this.base)
-          });
-        });
-      }
+  /* ★ 奈飞搜索页用 .search-list，补上 */
+  if(list.length === 0){
+    doc.querySelectorAll('.search-list').forEach(box => {
+      const a = box.querySelector('a[href*="/voddetail/"]');
+      if(!a) return;
+      const href = a.getAttribute('href') || '';
+      if(!href || seen.has(href)) return;
 
-      if(list.length === 0){
-        doc.querySelectorAll('a[href*="/voddetail/"]').forEach(a => {
-          const href = a.getAttribute('href') || '';
-          if(!href || seen.has(href)) return;
+      const titleEl = box.querySelector('.slide-info-title') || box.querySelector('h3');
+      const name = titleEl ? titleEl.textContent.trim() : '';
+      if(!name) return;
+      seen.add(href);
 
-          const scope = a.closest('.public-list-box') ||
-                        a.closest('li') ||
-                        a.parentElement || a;
+      const noteEl = box.querySelector('.slide-info-remarks');
 
-          const titleEl = scope.querySelector
-            ? (scope.querySelector('.slide-info-title') || scope.querySelector('h3'))
-            : null;
-          const name = titleEl ? titleEl.textContent.trim() : a.textContent.trim();
-          if(!name || name.length > 60) return;
+      list.push({
+        name,
+        year: noteEl ? noteEl.textContent.trim() : '',
+        rank: '',
+        cover: abs(pickCover(box), this.base),
+        href: abs(href, this.base)
+      });
+    });
+  }
 
-          seen.add(href);
+  /* ★ 兜底：直接找 /voddetail/ */
+  if(list.length === 0){
+    doc.querySelectorAll('a[href*="/voddetail/"]').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if(!href || seen.has(href)) return;
 
-          list.push({
-            name,
-            year: '',
-            rank: '',
-            cover: abs(pickCover(scope), this.base),
-            href: abs(href, this.base)
-          });
-        });
-      }
+      const scope = a.closest('.search-list') ||
+                    a.closest('.public-list-box') ||
+                    a.closest('li') ||
+                    a.parentElement || a;
 
-      return {
-        list,
-        prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
-        currentPage:1, totalPages:1, totalCount: list.length
-      };
-    },
+      const titleEl = scope.querySelector
+        ? (scope.querySelector('.slide-info-title') || scope.querySelector('h3'))
+        : null;
+      const name = titleEl ? titleEl.textContent.trim() : a.textContent.trim();
+      if(!name || name.length > 60) return;
+      seen.add(href);
+
+      list.push({
+        name,
+        year: '',
+        rank: '',
+        cover: abs(pickCover(scope), this.base),
+        href: abs(href, this.base)
+      });
+    });
+  }
+
+  /* ---------- ② 分页解析 ---------- */
+  let currentPage = 1;
+  let totalPages  = 1;
+  let totalCount  = list.length;
+  let prevUrl     = '';
+  let nextUrl     = '';
+
+  /* 结果总数：.mac-total */
+  const macTotalEl = doc.querySelector('.mac-total');
+  if(macTotalEl){
+    const n = parseInt(macTotalEl.textContent.trim(), 10);
+    if(!isNaN(n)) totalCount = n;
+  }
+
+  /* 当前页/总页数：.page-tip 文本 "共93条数据,当前1/10页" */
+  const pageTip = doc.querySelector('.pages .page-tip');
+  if(pageTip){
+    const text = pageTip.textContent || '';
+    const m1 = text.match(/共\s*(\d+)\s*条/);
+    const m2 = text.match(/当前\s*(\d+)\s*\/\s*(\d+)\s*页/);
+    if(m1){
+      const n = parseInt(m1[1], 10);
+      if(!isNaN(n)) totalCount = n;
+    }
+    if(m2){
+      currentPage = parseInt(m2[1], 10) || 1;
+      totalPages  = parseInt(m2[2], 10) || 1;
+    }
+  }
+
+  /* 上一页 / 下一页 URL */
+  const prevA = doc.querySelector('.page-info a[title="上一页"]');
+  if(prevA){
+    const phref = prevA.getAttribute('href') || '';
+    if(phref && !phref.includes('javascript:')){
+      prevUrl = abs(phref, this.base);
+    }
+  }
+  const nextA = doc.querySelector('.page-info a[title="下一页"]');
+  if(nextA){
+    const nhref = nextA.getAttribute('href') || '';
+    if(nhref && !nhref.includes('javascript:')){
+      nextUrl = abs(nhref, this.base);
+    }
+  }
+
+  const hasPrev = currentPage > 1;
+  const hasMore = currentPage < totalPages;
+  if(!hasPrev) prevUrl = '';
+  if(!hasMore) nextUrl = '';
+
+  return {
+    list,
+    prevUrl,
+    nextUrl,
+    hasPrev,
+    hasMore,
+    currentPage,
+    totalPages,
+    totalCount
+  };
+},
 
     parseDetail: function(html){
       const doc = new DOMParser().parseFromString(html, 'text/html');

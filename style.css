@@ -644,6 +644,6 @@ button.loading .btxt{display:none}
 
 /* 小蜜蜂 iframe 裁剪专用 */
 .player-container.vodplay-mode {
-  height: 300px;
+  height: 260px;
   aspect-ratio: auto;
 }

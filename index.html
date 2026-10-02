@@ -10,17 +10,8 @@
 <body>
 
 <div class="topbar">
-<div class="src-swiper" id="srcSwiper">
-  <div class="src-track" id="srcTrack">
-    <button class="src-pill" data-source="cilixiong">磁力熊</button>
-    <button class="src-pill" data-source="xiaomifeng">小蜜蜂</button>
-    <button class="src-pill" data-source="feikuai">飞快TV</button>
-    <button class="src-pill" data-source="ffzy">非凡资源</button>
-    <button class="src-pill" data-source="netflix">奈飞</button>
-    <button class="src-pill" data-source="flixflop">飞流视频</button>
-    <button class="src-pill" data-source="jiexi">视频解析</button>
-  </div>
-</div>
+  <div class="src-swiper" id="srcSwiper">
+    <div class="src-track" id="srcTrack"></div>
   </div>
   <div class="searchrow">
     <input id="kw" type="text" placeholder="电影名称" autocomplete="off">
@@ -2000,9 +1991,7 @@ function switchSource(src){
   currentSource = src;
   searchToken++;
 
-$$('.src-pill').forEach(function(b){
-  b.classList.toggle('active', b.dataset.source === src);
-});
+
 
   if(src === 'jiexi'){
     $('#srcName').textContent = '视频解析';
@@ -2041,8 +2030,8 @@ $$('.src-pill').forEach(function(b){
    片源横滑选择器（无限循环 + 中间大 / 左右中 / 再外小）
    ============================================================ */
 (function initSrcSwiper(){
-  const swiper = $('#srcSwiper');
-  const track = $('#srcTrack');
+  const swiper = document.getElementById('srcSwiper');
+  const track  = document.getElementById('srcTrack');
   if(!swiper || !track) return;
 
   const SRC_LIST = [
@@ -2056,16 +2045,17 @@ $$('.src-pill').forEach(function(b){
   ];
 
   const REAL_LEN = SRC_LIST.length;
-  const CLONE_N = 3;
+  const CLONE_N  = 3;
 
+  /* 三段：头克隆 + 真身 + 尾克隆 */
   const fullList = [
-    ...SRC_LIST.slice(-CLONE_N).map(o => ({ ...o, _clone:true })),
+    ...SRC_LIST.slice(-CLONE_N),
     ...SRC_LIST,
-    ...SRC_LIST.slice(0, CLONE_N).map(o => ({ ...o, _clone:true }))
+    ...SRC_LIST.slice(0, CLONE_N)
   ];
 
   track.innerHTML = fullList.map(o =>
-    `<button class="src-pill" data-source="${o.src}" data-clone="${o._clone ? '1' : '0'}">${o.name}</button>`
+    `<button class="src-pill" data-source="${o.src}">${o.name}</button>`
   ).join('');
 
   const pills = Array.prototype.slice.call(track.querySelectorAll('.src-pill'));
@@ -2073,6 +2063,10 @@ $$('.src-pill').forEach(function(b){
   let activeReal = Math.max(0, SRC_LIST.findIndex(o => o.src === currentSource));
   if(activeReal < 0) activeReal = 0;
   let activePhys = CLONE_N + activeReal;
+
+  /* 位移模型：baseOffset(基于 activePhys) + dragDelta(用户拖动增量) */
+  let baseOffset = 0;
+  let dragDelta  = 0;
 
   function applyClasses(){
     pills.forEach((p, i) => {
@@ -2082,7 +2076,7 @@ $$('.src-pill').forEach(function(b){
     });
   }
 
-  function calcOffset(){
+  function calcBaseOffset(){
     const wrapW = swiper.clientWidth;
     const el = pills[activePhys];
     if(!el) return 0;
@@ -2090,39 +2084,48 @@ $$('.src-pill').forEach(function(b){
     return wrapW / 2 - centerInTrack;
   }
 
-  function layout(animate){
+  function applyTransform(withAnimation){
+    track.style.transition = withAnimation ? '' : 'none';
+    track.style.transform  = 'translateX(' + (baseOffset + dragDelta) + 'px)';
+  }
+
+  function layout(withAnimation){
     applyClasses();
-    const offset = calcOffset();
-    if(!animate){
-      track.style.transition = 'none';
-      track.style.transform = 'translateX(' + offset + 'px)';
-      void track.offsetWidth;
-      track.style.transition = '';
-    } else {
-      track.style.transition = '';
-      track.style.transform = 'translateX(' + offset + 'px)';
-    }
+    baseOffset = calcBaseOffset();
+    dragDelta  = 0;
+    applyTransform(withAnimation);
   }
 
-  function recenterIfNeeded(){
+  /* 无缝循环：把 activePhys 拉回真身段，同时补偿视觉位置 */
+  function recenter(){
+    let changed = false;
     if(activePhys >= CLONE_N + REAL_LEN){
-      const over = activePhys - (CLONE_N + REAL_LEN);
-      activePhys = CLONE_N + over;
-      layout(false);
-      return true;
+      activePhys -= REAL_LEN;
+      changed = true;
+    } else if(activePhys < CLONE_N){
+      activePhys += REAL_LEN;
+      changed = true;
     }
-    if(activePhys < CLONE_N){
-      const over = activePhys;
-      activePhys = CLONE_N + REAL_LEN - CLONE_N + over;
-      layout(false);
-      return true;
-    }
-    return false;
+    if(!changed) return;
+
+    const oldBase = baseOffset;
+    const newBase = calcBaseOffset();
+    baseOffset = newBase;
+    /* 补偿：这一帧不要动，让视觉保持在原位 */
+    dragDelta = oldBase - newBase;
+    applyTransform(false);
+    /* 下一帧再恢复 transition 并清 0 */
+    requestAnimationFrame(function(){
+      dragDelta = 0;
+      applyTransform(true);
+    });
   }
 
-  function setActive(physIndex, animate){
-    if(physIndex < 0 || physIndex >= pills.length) return;
-    activePhys = physIndex;
+  function setActive(newPhys, withAnimation){
+    if(newPhys < 0 || newPhys >= pills.length) return;
+    activePhys = newPhys;
+
+    /* 映射回真实索引 */
     let realIdx;
     if(activePhys < CLONE_N){
       realIdx = REAL_LEN - CLONE_N + activePhys;
@@ -2131,15 +2134,15 @@ $$('.src-pill').forEach(function(b){
     } else {
       realIdx = activePhys - CLONE_N;
     }
-    const newSrc = SRC_LIST[realIdx].src;
-    if(newSrc !== currentSource){
+    if(realIdx !== activeReal){
       activeReal = realIdx;
-      switchSource(newSrc);
+      switchSource(SRC_LIST[realIdx].src);
     }
-    layout(animate !== false);
-    recenterIfNeeded();
+    layout(withAnimation !== false);
+    recenter();
   }
 
+  /* 点击 */
   pills.forEach((p, i) => {
     p.addEventListener('click', function(e){
       e.stopPropagation();
@@ -2147,26 +2150,20 @@ $$('.src-pill').forEach(function(b){
     });
   });
 
-  let dragging = false;
-  let startX = 0;
-  let startOffset = 0;
-  let curOffset = 0;
-  let moved = false;
+  /* 拖动 */
+  let dragging  = false;
+  let startX    = 0;
+  let moved     = false;
   let lastDelta = 0;
 
-  function getCurrentTransformX(){
-    const m = track.style.transform.match(/translateX\((-?[\d.]+)px\)/);
-    return m ? parseFloat(m[1]) : 0;
-  }
-
   function onDown(x){
-    dragging = true;
-    moved = false;
-    startX = x;
-    startOffset = getCurrentTransformX();
-    curOffset = startOffset;
-    track.style.transition = 'none';
+    dragging  = true;
+    moved     = false;
+    startX    = x;
+    dragDelta = 0;
+    lastDelta = 0;
     track.classList.add('dragging');
+    track.style.transition = 'none';
   }
 
   function onMove(x){
@@ -2174,8 +2171,8 @@ $$('.src-pill').forEach(function(b){
     const dx = x - startX;
     if(Math.abs(dx) > 4) moved = true;
     lastDelta = dx;
-    curOffset = startOffset + dx;
-    track.style.transform = 'translateX(' + curOffset + 'px)';
+    dragDelta = dx;
+    track.style.transform = 'translateX(' + (baseOffset + dragDelta) + 'px)';
   }
 
   function onUp(){
@@ -2184,14 +2181,18 @@ $$('.src-pill').forEach(function(b){
     track.classList.remove('dragging');
     track.style.transition = '';
 
-    if(Math.abs(lastDelta) < 40){
-      layout(true);
+    const threshold = 40;
+    const step = pills[0] ? (pills[0].offsetWidth + 14) : 114;
+
+    if(Math.abs(lastDelta) < threshold){
+      /* 回弹 */
+      dragDelta = 0;
+      applyTransform(true);
       return;
     }
+
     const dir = lastDelta < 0 ? 1 : -1;
-    const step = pills[0] ? (pills[0].offsetWidth + 14) : 100;
-    let steps = Math.round(Math.abs(lastDelta) / step);
-    if(steps < 1) steps = 1;
+    let steps = Math.max(1, Math.round(Math.abs(lastDelta) / step));
     setActive(activePhys + dir * steps, true);
   }
 
@@ -2199,8 +2200,8 @@ $$('.src-pill').forEach(function(b){
   window.addEventListener('mousemove', e => onMove(e.clientX));
   window.addEventListener('mouseup', onUp);
 
-  track.addEventListener('touchstart', e => { onDown(e.touches[0].clientX); }, { passive:true });
-  track.addEventListener('touchmove',  e => { onMove(e.touches[0].clientX); }, { passive:true });
+  track.addEventListener('touchstart', e => onDown(e.touches[0].clientX), { passive:true });
+  track.addEventListener('touchmove',  e => onMove(e.touches[0].clientX), { passive:true });
   track.addEventListener('touchend', onUp);
   track.addEventListener('touchcancel', onUp);
 
@@ -2210,12 +2211,14 @@ $$('.src-pill').forEach(function(b){
     resizeTimer = setTimeout(function(){ layout(false); }, 120);
   });
 
+  /* 初始化 */
   requestAnimationFrame(function(){
     requestAnimationFrame(function(){
       layout(false);
     });
   });
 
+  /* 外部调用入口 */
   window.__srcSwiperSet = function(src){
     const realIdx = SRC_LIST.findIndex(o => o.src === src);
     if(realIdx < 0) return;

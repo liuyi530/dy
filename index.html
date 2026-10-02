@@ -206,9 +206,13 @@ xiaomifeng: {
   name: '小蜜蜂',
   base: 'https://www.xmfyy.com',
 
-  getSearchUrl: function(kw){
-    return this.base + '/search?keyword=' + encodeURIComponent(kw);
-  },
+getSearchUrl: function(kw, page, sort){
+  page = page || 1;
+  sort = sort || 'hits';
+  return this.base + '/search?keyword=' + encodeURIComponent(kw)
+       + '&page=' + page
+       + '&sort=' + sort;
+},
   getSearchUrlGet: function(kw){
     return this.getSearchUrl(kw);
   },
@@ -252,12 +256,49 @@ xiaomifeng: {
       });
     });
 
-    return {
-      list,
-      prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
-      currentPage:1, totalPages:1, totalCount: list.length
-    };
-  },
+  // ★ 解析分页信息
+  let currentPage = 1, totalPages = 1, totalCount = list.length;
+
+  // ① 从 #pageData 拿 currentpage / totalpages
+  const pd = doc.querySelector('#pageData');
+  if(pd){
+    currentPage = parseInt(pd.dataset.currentpage || '1', 10) || 1;
+    totalPages  = parseInt(pd.dataset.totalpages  || '1', 10) || 1;
+  }
+
+  // ② 从搜索摘要里拿"共 N 个结果"
+  const sumEl = doc.querySelector('.search-summary em');
+  // .search-summary 里第一个 em 是关键词，第二个 em 是结果数
+  const sumEms = doc.querySelectorAll('.search-summary em');
+  if(sumEms.length >= 2){
+    const n = parseInt(sumEms[1].textContent.trim(), 10);
+    if(!isNaN(n)) totalCount = n;
+  }
+
+  // ③ 拼上一页 / 下一页 URL
+  const kw = pageState.currentKeyword || '';
+  const sort = 'hits';
+  const baseSearch = this.base + '/search?keyword=' + encodeURIComponent(kw) + '&sort=' + sort;
+  let prevUrl = '';
+  let nextUrl = '';
+  if(currentPage > 1){
+    prevUrl = baseSearch + '&page=' + (currentPage - 1);
+  }
+  if(currentPage < totalPages){
+    nextUrl = baseSearch + '&page=' + (currentPage + 1);
+  }
+
+  return {
+    list,
+    prevUrl,
+    nextUrl,
+    hasPrev: currentPage > 1,
+    hasMore: currentPage < totalPages,
+    currentPage,
+    totalPages,
+    totalCount
+  };
+},
 
   parseDetail: function(html){
     const doc = new DOMParser().parseFromString(html, 'text/html');

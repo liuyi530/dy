@@ -1,24 +1,13 @@
 {
-  "name": "影视搜索",
-  "short_name": "影视搜索",
-  "description": "一个简洁的影视资源搜索与播放应用",
-  "start_url": "https://dy-r9r.pages.dev/index.html",
+  "background_color": "#ffffff",
+  "dir": "ltr",
   "display": "standalone",
-  "background_color": "#0e1116",
-  "theme_color": "#20c997",
-  "orientation": "portrait",
-  "icons": [
-    {
-      "src": "icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ]
+  "name": "www.dy-r9r.pages",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "www.dy-r9r.pages",
+  "start_url": "/",
+  "theme_color": "#ffffff",
+  "id": "liuyi530",
+  "description": "这是一款影视搜索应用"
 }

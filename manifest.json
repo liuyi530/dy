@@ -2,7 +2,7 @@
   "name": "影视搜索",
   "short_name": "影视搜索",
   "description": "一个简洁的影视资源搜索与播放应用",
-  "start_url": "/",
+  "start_url": "https://dy-r9r.pages.dev/index.html",
   "display": "standalone",
   "background_color": "#0e1116",
   "theme_color": "#20c997",

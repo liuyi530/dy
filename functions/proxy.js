@@ -1,5 +1,7 @@
 const ALLOW_ORIGIN = '*';
 
+let lastReceivedCookie = '';
+
 export async function onRequest(context) {
   const { request } = context;
 
@@ -37,21 +39,20 @@ export async function onRequest(context) {
                   /\.(ts|mp4|flv|key|m4s|aac)(\?|#|$)/i.test(target) ||
                   /\.(ts|mp4|flv|key|m4s|aac)$/i.test(pathLower);
 
-  // ★ 新增：API / JSON 接口识别（飞流视频走这里）
-  //   判断依据：路径含 /api /v1 /v2 或 .php 接口，或前端明确声明
   const isApiPath = /\/api\//i.test(targetUrl.pathname) ||
                     /\/v[0-9]+\//i.test(targetUrl.pathname) ||
                     /\/ndsx\.php/i.test(targetUrl.pathname) ||
                     /\/api\.php/i.test(targetUrl.pathname);
 
   const isIframeReq = u.searchParams.get('iframe') === '1';
-  // ★ 新增：小蜜蜂 vodplay 播放页，也当作 iframe 请求处理
-
 
   // 前端可指定 Header（可选）
   const customReferer = request.headers.get('x-target-referer') || '';
   const customAccept  = request.headers.get('x-target-accept')  || '';
   const customCookie  = request.headers.get('x-target-cookie')  || '';
+
+  // ★ 前端没传 cookie 时，用代理自己记住的（PHPSESSID 等）
+  const effectiveCookie = customCookie || lastReceivedCookie;
 
   // ★ 判断是不是 API 请求：路径像 API，或前端声明 Accept 为 JSON
   const isApiRequest = isApiPath || /application\/json/i.test(customAccept);
@@ -63,7 +64,6 @@ export async function onRequest(context) {
   });
 
   if (isMedia) {
-    // ① 媒体请求（.m3u8 / .ts / .mp4 ...）
     reqHeaders.set('Accept', '*/*');
     reqHeaders.set('Sec-Fetch-Dest', 'empty');
     reqHeaders.set('Sec-Fetch-Mode', 'cors');
@@ -74,21 +74,16 @@ export async function onRequest(context) {
     }
 
   } else if (isApiRequest) {
-    // ② API / JSON 请求（飞流视频等）
-    //    - 优先用前端指定的 Accept
-    //    - 默认 application/json
     reqHeaders.set('Accept', customAccept || 'application/json, text/plain, */*');
     reqHeaders.set('Sec-Fetch-Dest', 'empty');
     reqHeaders.set('Sec-Fetch-Mode', 'cors');
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
-    // Referer / Origin：优先用前端指定的，否则用 target origin
     reqHeaders.set('Referer', customReferer || (targetOrigin + '/'));
     try { reqHeaders.set('Origin', new URL(customReferer || targetOrigin).origin); } catch(e){
       reqHeaders.set('Origin', targetOrigin);
     }
 
   } else {
-    // ③ HTML 请求（磁力熊 / 非凡 / 奈飞 的搜索、详情页）
     reqHeaders.set('Accept', customAccept || 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8');
     reqHeaders.set('Cache-Control', 'no-cache');
     reqHeaders.set('Pragma', 'no-cache');
@@ -103,8 +98,8 @@ export async function onRequest(context) {
     reqHeaders.set('Referer', customReferer || (targetOrigin + '/'));
   }
 
-  if (customCookie) {
-    reqHeaders.set('Cookie', customCookie);
+  if (effectiveCookie) {
+    reqHeaders.set('Cookie', effectiveCookie);
   }
 
   /* ========== 发请求 ========== */
@@ -172,6 +167,9 @@ export async function onRequest(context) {
       const setCookieHeader = resp.headers.get('set-cookie');
       if (setCookieHeader) {
         headers.set('x-set-cookie', setCookieHeader);
+        // ★ 从 set-cookie 中提取 PHPSESSID 并记住
+        const m = setCookieHeader.match(/PHPSESSID=[^;]+/);
+        if (m) lastReceivedCookie = m[0];
       }
 
       return new Response(body, { status: resp.status, headers });
@@ -181,16 +179,19 @@ export async function onRequest(context) {
     const body = await resp.arrayBuffer();
     if (ct) headers.set('Content-Type', ct);
 
-// iframe 嵌入（视频解析用）
-if (isIframeReq) {
-  headers.set('X-Frame-Options', 'ALLOWALL');
-  headers.set('Content-Security-Policy', "frame-ancestors *");
-  headers.set('Access-Control-Allow-Origin', ALLOW_ORIGIN);
-}
+    // iframe 嵌入（视频解析用）
+    if (isIframeReq) {
+      headers.set('X-Frame-Options', 'ALLOWALL');
+      headers.set('Content-Security-Policy', "frame-ancestors *");
+      headers.set('Access-Control-Allow-Origin', ALLOW_ORIGIN);
+    }
 
     const setCookieHeader = resp.headers.get('set-cookie');
     if (setCookieHeader) {
       headers.set('x-set-cookie', setCookieHeader);
+      // ★ 从 set-cookie 中提取 PHPSESSID 并记住
+      const m = setCookieHeader.match(/PHPSESSID=[^;]+/);
+      if (m) lastReceivedCookie = m[0];
     }
 
     return new Response(body, { status: resp.status, headers });

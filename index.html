@@ -1126,13 +1126,15 @@ function destroyHls(){
 }
 
 /* ============================================================
-   双击手势：左 30% 回退 10 秒 / 右 30% 快进 10 秒
-   + 全屏下底部 25% 左右滑动进度
+   整合修正版：手势控制 + 全屏/横屏切换
+   1. 左右 30% 双击：快进 / 快退 10 秒
+   2. 全屏下半屏滑动：调节播放进度（实时 UI + Toast）
+   3. 单击屏幕：延迟 300ms 切换控制面板显示/隐藏（避免与双击冲突）
+   4. 包含兼容多端的全屏/横屏切换逻辑 (toggleFullscreen)
    ============================================================ */
 (function initDoubleTapAndSwipeSeek(){
   const SIDE_RATIO   = 0.3;
   const JUMP_SEC     = 10;
-  const BOTTOM_RATIO = 0.25;
 
   function getVideo(){
     return document.getElementById('playerVideo');
@@ -1146,12 +1148,91 @@ function destroyHls(){
     const m = Math.floor(s / 60), ss = Math.floor(s % 60);
     return m + ':' + (ss < 10 ? '0' : '') + ss;
   }
-  function isFullscreen(){
-    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+
+  // 1. 兼容多端的全屏状态判定
+  function isFullscreen() {
+    return !!(
+      document.fullscreenElement ||
+      document.webkitFullscreenElement ||
+      document.mozFullScreenElement ||
+      document.msFullscreenElement
+    );
   }
 
-  /* ---------- 双击手势 ---------- */
-  function onTap(e){
+  // 2. 切换控制面板显示/隐藏（控制 UI 显隐）
+  function toggleControls() {
+    const container = document.getElementById('playerContainer');
+    if (container) {
+      container.classList.toggle('ctrl-show');
+    }
+  }
+
+  // 3. 带有错误捕获与多端兼容的全屏/横屏切换（挂载到全局 window.toggleFullscreen）
+  window.toggleFullscreen = async function toggleFullscreen() {
+    const container = document.getElementById('playerContainer');
+    if (!container) return;
+
+    if (!isFullscreen()) {
+      try {
+        if (container.requestFullscreen) {
+          await container.requestFullscreen();
+        } else if (container.webkitRequestFullscreen) {
+          await container.webkitRequestFullscreen();
+        } else if (container.mozRequestFullScreen) {
+          await container.mozRequestFullScreen();
+        } else if (container.msRequestFullscreen) {
+          await container.msRequestFullscreen();
+        }
+      } catch (e) {
+        console.warn('全屏请求被拒绝或不支持:', e);
+      }
+
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape-primary').catch(() => {});
+      }
+    } else {
+      try {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (document.webkitExitFullscreen) {
+          await document.webkitExitFullscreen();
+        } else if (document.mozCancelFullScreen) {
+          await document.mozCancelFullScreen();
+        } else if (document.msExitFullscreen) {
+          await document.msExitFullscreen();
+        }
+      } catch (e) {
+        console.warn('退出全屏失败:', e);
+      }
+
+      if (screen.orientation && screen.orientation.unlock) {
+        screen.orientation.unlock();
+      }
+    }
+  };
+
+  /* ---------- 双击快进/快退与提示 ---------- */
+  function showJumpToast(side, delta, target){
+    let el = document.getElementById('jumpToast');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'jumpToast';
+      el.style.cssText =
+        'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);' +
+        'background:rgba(0,0,0,.75);color:#fff;padding:12px 22px;' +
+        'border-radius:12px;font-size:15px;font-weight:700;' +
+        'z-index:999999;pointer-events:none;backdrop-filter:blur(6px);' +
+        'transition:opacity .2s;';
+      document.body.appendChild(el);
+    }
+    const arrow = delta > 0 ? '⏩ 快进' : '⏪ 回退';
+    el.textContent = arrow + ' ' + Math.abs(delta) + 's → ' + fmt(target);
+    el.style.opacity = '1';
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.style.opacity = '0'; }, 800);
+  }
+
+  function handleDoubleTap(e){
     if(!isPlayerVisible()) return;
     const video = getVideo();
     if(!video || !video.duration) return;
@@ -1175,156 +1256,130 @@ function destroyHls(){
     showJumpToast(side, delta, target);
   }
 
-  function showJumpToast(side, delta, target){
-    let el = document.getElementById('jumpToast');
-    if(!el){
-      el = document.createElement('div');
-      el.id = 'jumpToast';
-      el.style.cssText =
-        'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);' +
-        'background:rgba(0,0,0,.75);color:#fff;padding:12px 22px;' +
-        'border-radius:12px;font-size:15px;font-weight:700;' +
-        'z-index:999999;pointer-events:none;backdrop-filter:blur(6px);' +
-        'transition:opacity .2s;';
-      document.body.appendChild(el);
-    }
-    const arrow = delta > 0 ? '⏩ 快进' : '⏪ 回退';
-    el.textContent = arrow + ' ' + Math.abs(delta) + 's → ' + fmt(target);
-    el.style.opacity = '1';
-    clearTimeout(el._t);
-    el._t = setTimeout(() => { el.style.opacity = '0'; }, 800);
+  /* ---------- 统一的手势状态与全屏 Seek ---------- */
+  let touchTimer = null;
+  let lastTapTime = 0;
+  let startX = 0, startY = 0;
+  let isRealMove = false;
+  let swiping = false;
+  let startCurrent = 0, duration = 0;
+  let swipeTarget = null;
+
+  function getUI(){
+    return window._playerUI || null;
   }
 
-  let lastTapTime = 0, lastTapX = 0, lastTapY = 0;
-  const DOUBLE_GAP = 300, MOVE_TOL = 40;
+  function onStart(e){
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    startX = t.clientX;
+    startY = t.clientY;
+    isRealMove = false;
+    swiping = false;
 
-  function handleTouchEnd(e){
-    const t = e.changedTouches ? e.changedTouches[0] : e;
-    const now = Date.now();
-    const dt = now - lastTapTime;
-    const dx = Math.abs(t.clientX - lastTapX);
-    const dy = Math.abs(t.clientY - lastTapY);
+    // 仅在全屏且下半屏触发 Seek 滑动
+    if (isFullscreen()) {
+      const video = getVideo();
+      const container = document.getElementById('playerContainer');
+      if (video && video.duration && container) {
+        const rect = container.getBoundingClientRect();
+        if ((t.clientY - rect.top) >= rect.height * 0.5) {
+          swiping = true;
+          startCurrent = video.currentTime;
+          duration = video.duration;
+          swipeTarget = null;
+        }
+      }
+    }
+  }
 
-    if(dt < DOUBLE_GAP && dx < MOVE_TOL && dy < MOVE_TOL){
-      onTap(e);
-      lastTapTime = 0;
+  function onMove(e){
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      isRealMove = true;
+    }
+
+    if (swiping && isRealMove && duration > 0) {
+      const w = window.innerWidth;
+      const deltaSec = (dx / w) * duration * 0.5;
+      let target = startCurrent + deltaSec;
+      if (target < 0) target = 0;
+      if (target > duration) target = duration;
+
+      swipeTarget = target;
+
+      const ui = getUI();
+      if(ui && ui.fill && ui.dot && ui.timeEl){
+        const pct = (target / duration) * 100;
+        ui.fill.style.width = pct + '%';
+        ui.dot.style.left   = pct + '%';
+        ui.timeEl.textContent = fmt(target) + ' / ' + fmt(duration);
+      }
+
+      const delta = target - startCurrent;
+      showJumpToast(delta >= 0 ? 'right' : 'left', Math.round(delta), target);
+
+      if(e.cancelable) e.preventDefault();
+    }
+  }
+
+  function onEnd(e){
+    // 结算滑动 Seek 动作
+    if (swiping) {
+      swiping = false;
+      if (isRealMove && swipeTarget !== null) {
+        const video = getVideo();
+        if (video) video.currentTime = swipeTarget;
+      }
+      swipeTarget = null;
+    }
+
+    // 若发生了位移滑动，放弃点击与双击判定
+    if (isRealMove) {
+      if (touchTimer) {
+        clearTimeout(touchTimer);
+        touchTimer = null;
+      }
       return;
     }
-    lastTapTime = now;
-    lastTapX = t.clientX;
-    lastTapY = t.clientY;
-  }
 
-/* ---------- 全屏底部 50% 左右滑动进度（实时更新进度条+时间） ---------- */
-let swiping = false;
-let startX = 0, startCurrent = 0, duration = 0;
-let swipeTarget = null;
-
-function getUI(){
-  return window._playerUI || null;
-}
-
-function onStart(e){
-  if(!isFullscreen()) return;
-  const video = getVideo();
-  if(!video || !video.duration) return;
-  const t = e.touches[0];
-
-  // ★ 用容器 rect 判断底部 50%，比 window.innerHeight 更准
-  const container = document.getElementById('playerContainer');
-  if(!container) return;
-  const rect = container.getBoundingClientRect();
-  const relativeY = t.clientY - rect.top;
-  const h = rect.height;
-
-  if(relativeY < h * 0.5) return;   // 上半屏不响应
-
-  swiping = true;
-  startX = t.clientX;
-  startCurrent = video.currentTime;
-  duration = video.duration;
-  swipeTarget = startCurrent;
-}
-
-function onMove(e){
-  if(!swiping) return;
-  const video = getVideo();
-  if(!video || !video.duration) return;
-
-  const t = e.touches[0];
-  const dx = t.clientX - startX;
-  const w = window.innerWidth;
-
-  // 滑动灵敏度系数：划过全屏宽度调整 50% 总时长
-  const deltaSec = (dx / w) * duration * 0.5;
-  let target = startCurrent + deltaSec;
-  if(target < 0) target = 0;
-  if(target > duration) target = duration;
-
-  swipeTarget = target;
-
-  // ★ 实时更新进度条 UI (Fill + Dot + Time)
-  const ui = getUI();
-  if(ui && ui.fill && ui.dot && ui.timeEl){
-    const pct = (target / duration) * 100;
-    ui.fill.style.width = pct + '%';
-    ui.dot.style.left   = pct + '%';
-    ui.timeEl.textContent = fmt(target) + ' / ' + fmt(duration);
-  }
-
-  // 显示快进/快退浮动 Toast 提示
-  const delta = target - startCurrent;
-  const side = delta >= 0 ? 'right' : 'left';
-  showJumpToast(side, Math.round(delta), target);
-
-  if(e.cancelable) e.preventDefault();
-}
-
-
-function onEnd(){
-  if(!swiping) return;
-  swiping = false;
-  if(swipeTarget != null){
-    const video = getVideo();
-    if(video && video.duration){
-      // ★ 松手才真正 seek
-      video.currentTime = swipeTarget;
+    // 单击 / 双击防冲突逻辑
+    const now = Date.now();
+    if (now - lastTapTime < 300) {
+      clearTimeout(touchTimer);
+      touchTimer = null;
+      lastTapTime = 0;
+      handleDoubleTap(e);
+    } else {
+      lastTapTime = now;
+      touchTimer = setTimeout(() => {
+        toggleControls();
+        touchTimer = null;
+      }, 300);
     }
-    swipeTarget = null;
   }
-}
 
-function bind(){
-  /* 双击：容器 + 全屏元素 */
-  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-  const dblTargets = [document.getElementById('playerContainer')];
-  if(fsEl && fsEl.tagName !== 'VIDEO') dblTargets.push(fsEl);
+  /* ---------- 事件绑定 ---------- */
+  function bind(){
+    const container = document.getElementById('playerContainer');
+    if(!container || container.__gestureBound) return;
+    container.__gestureBound = true;
 
-  dblTargets.forEach(c => {
-    if(!c || c.__dblBound) return;
-    c.__dblBound = true;
-    c.addEventListener('touchend', handleTouchEnd, { passive: true });
-  });
-
-  /* 底部滑动：容器 + 全屏元素（每次都重新检查全屏元素） */
-  const swipeTargets = [document.getElementById('playerContainer')];
-  const fsEl2 = document.fullscreenElement || document.webkitFullscreenElement;
-  if(fsEl2 && fsEl2.tagName !== 'VIDEO') swipeTargets.push(fsEl2);
-
-  swipeTargets.forEach(t => {
-    if(!t || t.__swipeBound) return;
-    t.__swipeBound = true;
-    t.addEventListener('touchstart',  onStart, { passive: false });
-    t.addEventListener('touchmove',   onMove,  { passive: false });
-    t.addEventListener('touchend',    onEnd);
-    t.addEventListener('touchcancel', onEnd);
-  });
-}
+    container.addEventListener('touchstart',  onStart, { passive: false });
+    container.addEventListener('touchmove',   onMove,  { passive: false });
+    container.addEventListener('touchend',    onEnd);
+    container.addEventListener('touchcancel', onEnd);
+  }
 
   setInterval(bind, 600);
   document.addEventListener('fullscreenchange', () => setTimeout(bind, 100));
   document.addEventListener('webkitfullscreenchange', () => setTimeout(bind, 100));
 })();
+
 
 
 /* ============================================================
@@ -1427,14 +1482,25 @@ function setupVideoControls(){
   let isDragging  = false;
   let pendingSeek = null;
 
-  /* ---------- timeupdate（拖动中不覆盖 UI） ---------- */
+// 假设您的全局/上下文中有控制滑动状态的变量：
+// swiping (是否正在屏幕滑动) 和 isDragging (是否正在拖拽进度条)
+
+function setupPlayerEvents(video, ui) {
   video.addEventListener('timeupdate', () => {
-    if(isDragging) return;
-    const pct = video.duration ? (video.currentTime / video.duration) * 100 : 0;
-    fill.style.width = pct + '%';
-    dot.style.left   = pct + '%';
-    timeEl.textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+    if (!video.duration) return;
+
+    // ★ 关键修改：如果用户正在滑动调整进度或拖拽进度条，直接跳过 UI 刷新
+    // 避免 timeupdate 高频修改 DOM 与手指拖拽产生视觉“拉扯”和卡顿
+    if (typeof swiping !== 'undefined' && swiping) return;
+    if (typeof isDragging !== 'undefined' && isDragging) return;
+
+    const pct = (video.currentTime / video.duration) * 100;
+    if (ui.fill) ui.fill.style.width = pct + '%';
+    if (ui.dot) ui.dot.style.left = pct + '%';
+    if (ui.timeEl) ui.timeEl.textContent = `${fmt(video.currentTime)} / ${fmt(video.duration)}`;
   });
+}
+
 
   function getPctFromX(clientX){
     const r = wrap.getBoundingClientRect();

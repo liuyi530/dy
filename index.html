@@ -585,6 +585,7 @@ feikuai: {
 ikanbot: {
   name: '爱看机器人',
   base: 'https://www1.ikanbot.com',
+  noReferer: true,
 
   getSearchUrl: function(kw){
     return this.base + '/search?q=' + encodeURIComponent(kw);
@@ -672,12 +673,13 @@ ikanbot: {
     };
   },
 
+
   parseDetail: function(html){
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const playList = [];
     const seen = new Set();
 
-    /* ---------- 解析 #lineContent 里的所有线路 ---------- */
+    /* ---------- 优先：HTML 里已含 #lineContent（老版页面） ---------- */
     doc.querySelectorAll('#lineContent > li').forEach(group => {
       const lineNameEl = group.querySelector('.line-name');
       const lineName = lineNameEl ? lineNameEl.textContent.trim() : '线路';
@@ -693,10 +695,130 @@ ikanbot: {
     });
 
     return { cover: '', magnets: [], playPageUrl: '', playList };
+  },
+
+  /* ---------- 新版页面：HTML 里 lineContent 为空，需要走接口 ---------- */
+  parseDetailAsync: async function(html){
+    /* ① 尝试先按老版 HTML 解析（有些页面服务端直接吐数据） */
+    const fallback = this.parseDetail(html);
+    if(fallback.playList && fallback.playList.length > 0){
+      return fallback;
+    }
+
+    /* ② 从 HTML 里抠出 current_id / e_token / mtype */
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const idEl    = doc.querySelector('#current_id');
+    const tksEl   = doc.querySelector('#e_token');
+    const mtypeEl = doc.querySelector('#mtype');
+
+    const videoId = idEl ? (idEl.value || '').trim() : '';
+    const eToken  = tksEl ? (tksEl.value || '').trim() : '';
+    const mtype   = mtypeEl ? (mtypeEl.value || '1').trim() : '1';
+
+    if(!videoId || !eToken){
+      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+    }
+
+    /* ③ 计算 v_tks（复刻 ikanbot 内联的 get_tks 算法） */
+    const vTks = (function(_id, _token){
+      if(!_id || !_token) return '';
+      const last4 = _id.substring(_id.length - 4);
+      let tokenRest = _token;
+      const parts = [];
+      for(let i = 0; i < last4.length; i++){
+        const n = parseInt(last4[i], 10);
+        if(isNaN(n)) return '';
+        const offset = n % 3 + 1;
+        parts.push(tokenRest.substring(offset, offset + 8));
+        tokenRest = tokenRest.substring(offset + 8);
+      }
+      return parts.join('');
+    })(videoId, eToken);
+
+    if(!vTks){
+      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+    }
+
+    /* ④ 请求 /api/getResN */
+    const apiUrl = this.base + '/api/getResN'
+      + '?videoId=' + encodeURIComponent(videoId)
+      + '&mtype='   + encodeURIComponent(mtype)
+      + '&token='   + encodeURIComponent(vTks);
+
+    let respText = '';
+    try{
+      respText = await requestUrl(apiUrl);
+    }catch(e){
+      console.warn('ikanbot getResN 请求失败：', e.message);
+      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+    }
+
+    let resp;
+    try{ resp = JSON.parse(respText); }
+    catch(e){
+      console.warn('ikanbot getResN 返回不是 JSON：', respText.slice(0, 200));
+      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+    }
+
+    if(!resp || resp.state !== 1 || !resp.data || !resp.data.list){
+      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+    }
+
+    /* ⑤ 解析 list，展开成 { lineName, epName, url } */
+    const playList = [];
+    const seen = new Set();
+
+    resp.data.list.forEach((item, idx) => {
+      const lineId = item.id;
+      const lineName = '线路' + (idx + 1);
+
+      let resArr = [];
+      try{
+        // resData 是字符串形式的数组，用 new Function 解析
+        resArr = (new Function('return (' + item.resData + ');'))();
+      }catch(e){
+        console.warn('ikanbot resData 解析失败：', e.message);
+        return;
+      }
+
+      if(!Array.isArray(resArr)) return;
+
+      resArr.forEach((res, j) => {
+        const lineUrlData = res && res.url ? String(res.url) : '';
+        const newName = res && res.newName ? String(res.newName) : '';
+        if(!lineUrlData) return;
+
+        const urls = lineUrlData.split('#');
+        urls.forEach((one, i) => {
+          const urlDatas = one.split('$');
+          if(urlDatas.length < 2) return;
+
+          let urlName = urlDatas[0];
+          const urlLink = urlDatas[1];
+          if(!urlName || !urlLink) return;
+          if(!/m3u8$/i.test(urlLink)) return;
+
+          // mtype != 1 且 newName 不是纯数字时，用 newName 覆盖集名
+          if(newName && isNaN(newName) && mtype && mtype !== '1'){
+            urlName = newName;
+          }
+
+          const key = lineId + '-' + j + '-' + i;
+          if(seen.has(key)) return;
+          seen.add(key);
+
+          playList.push({
+            lineName,
+            epName: urlName,
+            url: urlLink
+          });
+        });
+      });
+    });
+
+    return { cover: '', magnets: [], playPageUrl: '', playList };
   }
 },
-
-
 
   /* ------------------------ 飞流视频 ------------------------ */
   flixflop: {
@@ -1818,8 +1940,11 @@ function startHlsPlayer(videoUrl){
   if(iframe){ iframe.style.display = 'none'; }
   if(video) video.style.display = 'block';
 
-  const srcBase = (SOURCES[currentSource] && SOURCES[currentSource].base) || '';
-  const referer = srcBase ? (srcBase.replace(/\/$/, '') + '/') : '';
+const srcCfg = SOURCES[currentSource] || {};
+const srcBase = srcCfg.base || '';
+const referer = (!srcCfg.noReferer && srcBase)
+  ? (srcBase.replace(/\/$/, '') + '/')
+  : '';
 
   const proxiedSrc = CONFIG.relay + encodeURIComponent(videoUrl);
   const directSrc = videoUrl;
@@ -2417,11 +2542,16 @@ async function openDetail(item){
         playPageUrl: '',
         playList
       };
-    } else {
-      const html = await requestUrl(item.href);
-      if(!detailOpen) return;
-      detailData = SOURCES[currentSource].parseDetail(html);
-    }
+    } } else {
+  const html = await requestUrl(item.href);
+  if(!detailOpen) return;
+  const src = SOURCES[currentSource];
+  if(typeof src.parseDetailAsync === 'function'){
+    detailData = await src.parseDetailAsync(html);
+  } else {
+    detailData = src.parseDetail(html);
+  }
+}
 
     if(detailData.cover){
       $('#dThumb').style.backgroundImage = "url('" + detailData.cover + "')";

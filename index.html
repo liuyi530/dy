@@ -1133,6 +1133,22 @@ function destroyHls(){
    4. 包含兼容多端的全屏/横屏切换逻辑 (toggleFullscreen)
    ============================================================ */
 (function initDoubleTapAndSwipeSeek(){
+    // ★ 新增：控制栏 2 秒自动隐藏
+let hideCtrlTimer = null;
+function cancelHideTimer(){
+  if(hideCtrlTimer){
+    clearTimeout(hideCtrlTimer);
+    hideCtrlTimer = null;
+  }
+}
+function startHideTimer(){
+  cancelHideTimer();
+  hideCtrlTimer = setTimeout(function(){
+    const c = document.getElementById('playerContainer');
+    if(c) c.classList.remove('ctrl-show');
+    hideCtrlTimer = null;
+  }, 2000);
+}
   const SIDE_RATIO   = 0.3;
   const JUMP_SEC     = 10;
 
@@ -1289,6 +1305,9 @@ if (isFullscreen()) {
       startCurrent = video.currentTime;
       duration = video.duration;
       swipeTarget = null;
+      // ★ 新增：显示控制栏 + 取消隐藏倒计时
+container.classList.add('ctrl-show');
+cancelHideTimer();
     }
   }
 }
@@ -1339,12 +1358,15 @@ if (e.target && e.target.closest('.video-ctrl')) {
 
 if (swiping) {
   swiping = false;
-  window._swiping = false;              // ← 新增这一行
+  window._swiping = false;
   if (isRealMove && swipeTarget !== null) {
     const video = getVideo();
     if (video) video.currentTime = swipeTarget;
   }
   swipeTarget = null;
+
+  // ★ 新增：松手后启动 2 秒倒计时隐藏控制栏
+  startHideTimer();
 }
 
     // 若发生了位移滑动，放弃点击与双击判定
@@ -1488,6 +1510,10 @@ function fmt(s){
   let dragPct     = 0;
   let isDragging  = false;
   let pendingSeek = null;
+  // ★ 新增：相对滑动模式（非圆点拖动）
+    let relativeDrag = false;
+    let relStartX = 0;
+    let relStartPct = 0;
 
 // 假设您的全局/上下文中有控制滑动状态的变量：
 // swiping (是否正在屏幕滑动) 和 isDragging (是否正在拖拽进度条)
@@ -1509,6 +1535,18 @@ function isInTrackZone(clientY){
   const padding = 12; // 上下容差（px），方便手指点到细线
   return clientY >= r.top - padding && clientY <= r.bottom + padding;
 }
+// 细线判断结束
+
+// ★ 新增：判断触点是否在进度条圆点上
+function isOnDot(clientX, clientY){
+  const dotEl = ctrl.querySelector('#progressDot');
+  if(!dotEl) return false;
+  const r = dotEl.getBoundingClientRect();
+  const padding = 14; // 圆点点击扩大范围
+  return clientX >= r.left - padding && clientX <= r.right + padding &&
+         clientY >= r.top - padding && clientY <= r.bottom + padding;
+}
+
 
   function updateDragUI(clientX){
     const pct = getPctFromX(clientX);
@@ -1519,6 +1557,21 @@ function isInTrackZone(clientY){
       timeEl.textContent = fmt(pct * video.duration) + ' / ' + fmt(video.duration);
     }
   }
+  // ★ 新增：非圆点相对滑动时的 UI 更新
+function updateRelativeDragUI(clientX){
+  const bg = wrap.querySelector('.progress-bg');
+  const bgW = bg ? bg.getBoundingClientRect().width : wrap.getBoundingClientRect().width;
+  if(bgW <= 0) return;
+  const dx = clientX - relStartX;
+  let newPct = relStartPct + dx / bgW;
+  newPct = Math.min(1, Math.max(0, newPct));
+  dragPct = newPct;
+  playedEl.style.width = newPct * 100 + '%';
+  dot.style.left = newPct * 100 + '%';
+  if(video.duration && isFinite(video.duration)){
+    timeEl.textContent = fmt(newPct * video.duration) + ' / ' + fmt(video.duration);
+  }
+}
 
 
   function canSeekTo(v, t){
@@ -1571,22 +1624,55 @@ function doSeek(target){
 /* ---------- 鼠标 ---------- */
 wrap.addEventListener('mousedown', e => {
   if (!isInTrackZone(e.clientY)) return;   // ★ 只响应细线区域
-  isDragging = true;
-  updateDragUI(e.clientX);
+
+  if (isOnDot(e.clientX, e.clientY)) {
+    // ① 按在圆点上：原有拖动模式
+    isDragging = true;
+    updateDragUI(e.clientX);
+  } else {
+    // ② 按在非圆点：相对滑动模式
+    relativeDrag = true;
+    relStartX = e.clientX;
+    relStartPct = (video.duration && isFinite(video.duration))
+      ? video.currentTime / video.duration
+      : 0;
+  }
 });
-  window.addEventListener('mousemove', e => {
-    if(isDragging) updateDragUI(e.clientX);
-  });
-  window.addEventListener('mouseup', () => {
-    if(isDragging) commitDrag();
-  });
+
+
+window.addEventListener('mousemove', e => {
+  if(isDragging) updateDragUI(e.clientX);
+  else if(relativeDrag) updateRelativeDragUI(e.clientX);   // ★ 新增
+});
+window.addEventListener('mouseup', () => {
+  if(isDragging){
+    commitDrag();
+  } else if(relativeDrag){                                  // ★ 新增
+    relativeDrag = false;
+    if(video.duration && isFinite(video.duration)){
+      doSeek(dragPct * video.duration);
+    }
+  }
+});
 
 /* ---------- 触摸进度条 ---------- */
 wrap.addEventListener('touchstart', e => {
   e.stopPropagation(); // 阻止冒泡给容器，防止触发 toggleControls
-  if (!isInTrackZone(e.touches[0].clientY)) return;   // ★ 只响应细线区域
-  isDragging = true;
-  updateDragUI(e.touches[0].clientX);
+  const t = e.touches[0];
+  if (!isInTrackZone(t.clientY)) return;   // ★ 只响应细线区域
+
+  if (isOnDot(t.clientX, t.clientY)) {
+    // ① 按在圆点上：原有拖动模式
+    isDragging = true;
+    updateDragUI(t.clientX);
+  } else {
+    // ② 按在非圆点：相对滑动模式
+    relativeDrag = true;
+    relStartX = t.clientX;
+    relStartPct = (video.duration && isFinite(video.duration))
+      ? video.currentTime / video.duration
+      : 0;
+  }
 }, { passive: true });
 
 // 阻止 click 事件冒泡，防止点击进度条时触发视频容器的 toggleControls
@@ -1595,16 +1681,34 @@ wrap.addEventListener('click', e => {
 });
 
 wrap.addEventListener('touchmove', e => {
-  if(!isDragging) return;
-  updateDragUI(e.touches[0].clientX);
-  if(e.cancelable) e.preventDefault();
+  if(isDragging){
+    updateDragUI(e.touches[0].clientX);
+    if(e.cancelable) e.preventDefault();
+  } else if(relativeDrag){                                   // ★ 新增
+    updateRelativeDragUI(e.touches[0].clientX);
+    if(e.cancelable) e.preventDefault();
+  }
 }, { passive: false });
 
 wrap.addEventListener('touchend', () => {
-  if(isDragging) commitDrag();
+  if(isDragging){
+    commitDrag();
+  } else if(relativeDrag){                                   // ★ 新增
+    relativeDrag = false;
+    if(video.duration && isFinite(video.duration)){
+      doSeek(dragPct * video.duration);
+    }
+  }
 });
 wrap.addEventListener('touchcancel', () => {
-  if(isDragging) commitDrag();
+  if(isDragging){
+    commitDrag();
+  } else if(relativeDrag){                                   // ★ 新增
+    relativeDrag = false;
+    if(video.duration && isFinite(video.duration)){
+      doSeek(dragPct * video.duration);
+    }
+  }
 });
 
   /* ---------- 倍速 ---------- */

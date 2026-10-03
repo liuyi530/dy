@@ -1329,9 +1329,6 @@ function bind(){
 
 /* ============================================================
    自定义播放器控件（不依赖原生全屏）
-   ============================================================ */
-/* ============================================================
-   自定义播放器控件（不依赖原生全屏）
    进度条：拖动中只更新 UI，松手才 seek，seek 不了就挂起等缓冲
    ============================================================ */
 function setupVideoControls(){
@@ -1343,12 +1340,13 @@ function setupVideoControls(){
   const ctrl = document.createElement('div');
   ctrl.className = 'video-ctrl';
   ctrl.innerHTML =
-    '<div class="progress-wrap">' +
-      '<div class="progress-bg">' +
-        '<div class="progress-fill"></div>' +
-        '<div class="progress-dot"></div>' +
-      '</div>' +
+    '<div class="progress-wrap" id="progressWrap">' +
+      '<div class="progress-bg"></div>' +
+      '<div class="progress-buffered" id="progressBuffered"></div>' +
+      '<div class="progress-played" id="progressPlayed"></div>' +
+      '<div class="progress-dot" id="progressDot"></div>' +
     '</div>' +
+    
     '<div class="ctrl-row">' +
       '<button id="vPlay">▶</button>' +
       '<span class="time" id="vTime">0:00 / 0:00</span>' +
@@ -1358,21 +1356,66 @@ function setupVideoControls(){
     '</div>';
   container.appendChild(ctrl);
 
-  const playBtn = ctrl.querySelector('#vPlay');
-  const timeEl  = ctrl.querySelector('#vTime');
-  const rateBtn = ctrl.querySelector('#vRate');
-  const fsBtn   = ctrl.querySelector('#vFs');
-  const fill    = ctrl.querySelector('.progress-fill');
-  const dot     = ctrl.querySelector('.progress-dot');
-  const wrap    = ctrl.querySelector('.progress-wrap');
+  const playBtn    = ctrl.querySelector('#vPlay');
+  const timeEl     = ctrl.querySelector('#vTime');
+  const rateBtn    = ctrl.querySelector('#vRate');
+  const fsBtn      = ctrl.querySelector('#vFs');
+  const playedEl   = ctrl.querySelector('#progressPlayed');   // 绿色播放层
+  const bufferedEl = ctrl.querySelector('#progressBuffered'); // 红色缓冲层
+  const dot        = ctrl.querySelector('#progressDot');
+  const wrap       = ctrl.querySelector('.progress-wrap');
   // 暴露给全屏滑动手势复用
-window._playerUI = { fill, dot, timeEl, video };
+  window._playerUI = { fill: playedEl, buffered: bufferedEl, dot, timeEl, video };
+
+  // 1. 播放进度更新 (绿色层)
+  function updatePlayedUI() {
+    if (typeof isDragging !== 'undefined' && isDragging) return; // 拖动时不覆盖
+    if (video.duration && isFinite(video.duration)) {
+      const pct = (video.currentTime / video.duration) * 100;
+      playedEl.style.width = pct + '%';
+      dot.style.left = pct + '%';
+      timeEl.textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
+    }
+  }
+
+  // 2. 缓冲进度更新 (红色层)
+  function updateBufferedUI() {
+    if (!video || !video.duration || !isFinite(video.duration) || !video.buffered || !video.buffered.length) return;
+
+    const currentTime = video.currentTime;
+    let bufferedEnd = 0;
+
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (video.buffered.start(i) <= currentTime && currentTime <= video.buffered.end(i)) {
+        bufferedEnd = video.buffered.end(i);
+        break;
+      }
+    }
+
+    if (bufferedEnd === 0 && video.buffered.length > 0) {
+      bufferedEnd = video.buffered.end(video.buffered.length - 1);
+    }
+
+    const pct = (bufferedEnd / video.duration) * 100;
+    bufferedEl.style.width = pct + '%';
+  }
+
+  // 绑定播放与缓冲事件
+  video.addEventListener('timeupdate', updatePlayedUI);
+  video.addEventListener('progress', updateBufferedUI);
+  video.addEventListener('seeking', updateBufferedUI);
+  video.addEventListener('seeked', updateBufferedUI);
+
+  if (typeof hls !== 'undefined' && hls) {
+    hls.on(Hls.Events.FRAG_BUFFERED, updateBufferedUI);
+  }
 
   function fmt(s){
     if(!isFinite(s)) return '0:00';
     const m = Math.floor(s / 60), ss = Math.floor(s % 60);
     return m + ':' + (ss < 10 ? '0' : '') + ss;
   }
+
 
   /* ---------- 播放 / 暂停 ---------- */
   playBtn.onclick = () => { video.paused ? video.play() : video.pause(); };
@@ -1401,12 +1444,13 @@ window._playerUI = { fill, dot, timeEl, video };
   function updateDragUI(clientX){
     const pct = getPctFromX(clientX);
     dragPct = pct;
-    fill.style.width = pct * 100 + '%';
+    playedEl.style.width = pct * 100 + '%';
     dot.style.left   = pct * 100 + '%';
     if(video.duration && isFinite(video.duration)){
       timeEl.textContent = fmt(pct * video.duration) + ' / ' + fmt(video.duration);
     }
   }
+
 
   function canSeekTo(v, t){
     if(!v.seekable || v.seekable.length === 0) return false;

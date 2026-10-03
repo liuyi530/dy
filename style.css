@@ -654,9 +654,17 @@ body{
 }
 .video-ctrl .ctrl-row button {
   background: none; border: none; color: #fff;
-  font-size: 16px; cursor: pointer;
+  font-size: 18px; cursor: pointer;
   padding: 4px; line-height: 1;
 }
+
+.video-ctrl .ctrl-row #vFs {
+  font-size: 24px;              /* ← 就是这一行，控制大小 */
+  padding: 0 4px;
+  line-height: 1;
+}
+
+
 .video-ctrl .ctrl-row .time {
   font-variant-numeric: tabular-nums;
   font-size: 11px; color: #ddd;

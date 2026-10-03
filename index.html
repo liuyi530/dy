@@ -798,10 +798,10 @@ ikanbot: {
           if(!urlName || !urlLink) return;
           if(!/m3u8$/i.test(urlLink)) return;
 
-          // mtype != 1 且 newName 不是纯数字时，用 newName 覆盖集名
-          if(newName && isNaN(newName) && mtype && mtype !== '1'){
-            urlName = newName;
-          }
+// mtype == 1 且 newName 非数字时，用 newName 覆盖集名（对齐 ikanbot 官方逻辑）
+if(newName && isNaN(newName) && mtype && mtype === '1'){
+  urlName = newName;
+}
 
           const key = lineId + '-' + j + '-' + i;
           if(seen.has(key)) return;

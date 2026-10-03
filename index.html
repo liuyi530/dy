@@ -1630,6 +1630,11 @@ container.addEventListener('touchstart', () => {
   });
 }
 
+/* ★ 新增：缓冲区策略常量 */
+const SHORT_VIDEO_SECONDS  = 30 * 60; // 短视频阈值：30 分钟（秒）
+const SHORT_BUFFER_SECONDS = 3 * 60;  // 短视频缓冲区上限：3 分钟
+const LONG_BUFFER_SECONDS  = 5 * 60;  // 长视频缓冲区上限：5 分钟
+const DEFAULT_BITRATE      = 2000000; // 码率兜底值（bps），用于估算字节上限
 
 function startHlsPlayer(videoUrl){
   const container = $('#playerContainer');
@@ -1660,21 +1665,67 @@ function startHlsPlayer(videoUrl){
     return;
   }
 
-  hlsInstance = new Hls({
-    enableWorker: true,
-    lowLatencyMode: true,
-    manifestLoadingTimeOut: 20000,
-    manifestLoadingMaxRetry: 2,
-    fragLoadingTimeOut: 20000,
-    fragLoadingMaxRetry: 2,
-    xhrSetup: function(xhr, url){
-      try {
-        if(referer && url && url.indexOf('/proxy?url=') === 0){
-          xhr.setRequestHeader('x-target-referer', referer);
-        }
-      } catch(e){}
-    }
-  });
+hlsInstance = new Hls({
+  enableWorker: true,
+  lowLatencyMode: true,
+  manifestLoadingTimeOut: 20000,
+  manifestLoadingMaxRetry: 2,
+  fragLoadingTimeOut: 20000,
+  fragLoadingMaxRetry: 2,
+
+  // ★ 新增：缓冲区初值（拿到真实时长后会被动态覆盖）
+  maxBufferLength:    LONG_BUFFER_SECONDS,
+  maxMaxBufferLength: LONG_BUFFER_SECONDS,  // 必须同步改，否则会被默认 600s 顶上去
+  maxBufferSize:      100 * 1024 * 1024,
+  backBufferLength:   90,                    // 已播放部分保留 90 秒
+
+  xhrSetup: function(xhr, url){
+    try {
+      if(referer && url && url.indexOf('/proxy?url=') === 0){
+        xhr.setRequestHeader('x-target-referer', referer);
+      }
+    } catch(e){}
+  }
+});
+
+/* ---------- ★ 新增：根据总时长动态调整缓冲区 ---------- */
+let lastAppliedDuration = -1;
+
+function applyBufferPolicy(duration){
+  if (typeof duration !== 'number' || !isFinite(duration) || duration <= 0) return;
+  if (duration === lastAppliedDuration) return;
+  lastAppliedDuration = duration;
+
+  const isShort = duration <= SHORT_VIDEO_SECONDS;
+  const bufLen  = isShort ? SHORT_BUFFER_SECONDS : LONG_BUFFER_SECONDS;
+
+  const levelIdx = hlsInstance.currentLevel >= 0 ? hlsInstance.currentLevel : hlsInstance.loadLevel;
+  const level    = hlsInstance.levels && hlsInstance.levels[levelIdx];
+  const bitrate  = (level && level.bitrate) || DEFAULT_BITRATE;
+  const bufSize  = Math.max((bitrate / 8) * bufLen, 10 * 1024 * 1024);
+
+  hlsInstance.config.maxBufferLength    = bufLen;
+  hlsInstance.config.maxMaxBufferLength = bufLen;
+  hlsInstance.config.maxBufferSize      = bufSize;
+
+  console.log('[HLS] 总时长 ' + duration.toFixed(0) + 's → 缓冲上限 ' +
+              bufLen + 's，字节上限 ' + (bufSize / 1024 / 1024).toFixed(1) + 'MB');
+}
+
+/* ---------- ★ 新增：三个事件监听，触发动态缓冲策略 ---------- */
+hlsInstance.on(Hls.Events.LEVEL_LOADED, function(_, data){
+  applyBufferPolicy(data.details.totalduration);
+});
+hlsInstance.on(Hls.Events.LEVEL_UPDATED, function(_, data){
+  applyBufferPolicy(data.details.totalduration);
+});
+video.addEventListener('durationchange', function(){
+  if (isFinite(video.duration) && video.duration > 0) {
+    applyBufferPolicy(video.duration);
+  }
+});
+
+
 
   /* ---------- ★ 新增：HLS 分片加载完成 → 更新缓冲条 ---------- */
   hlsInstance.on(Hls.Events.FRAG_BUFFERED, function(){

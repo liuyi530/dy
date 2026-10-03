@@ -1183,49 +1183,7 @@ function startHideTimer(){
     }
   }
 
-  // 3. 带有错误捕获与多端兼容的全屏/横屏切换（挂载到全局 window.toggleFullscreen）
-  window.toggleFullscreen = async function toggleFullscreen() {
-    const container = document.getElementById('playerContainer');
-    if (!container) return;
 
-    if (!isFullscreen()) {
-      try {
-        if (container.requestFullscreen) {
-          await container.requestFullscreen();
-        } else if (container.webkitRequestFullscreen) {
-          await container.webkitRequestFullscreen();
-        } else if (container.mozRequestFullScreen) {
-          await container.mozRequestFullScreen();
-        } else if (container.msRequestFullscreen) {
-          await container.msRequestFullscreen();
-        }
-      } catch (e) {
-        console.warn('全屏请求被拒绝或不支持:', e);
-      }
-
-      if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape-primary').catch(() => {});
-      }
-    } else {
-      try {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if (document.webkitExitFullscreen) {
-          await document.webkitExitFullscreen();
-        } else if (document.mozCancelFullScreen) {
-          await document.mozCancelFullScreen();
-        } else if (document.msExitFullscreen) {
-          await document.msExitFullscreen();
-        }
-      } catch (e) {
-        console.warn('退出全屏失败:', e);
-      }
-
-      if (screen.orientation && screen.orientation.unlock) {
-        screen.orientation.unlock();
-      }
-    }
-  };
 
   /* ---------- 双击快进/快退与提示 ---------- */
   function showJumpToast(side, delta, target){
@@ -1429,6 +1387,143 @@ if (swiping) {
   setInterval(bind, 600);
   document.addEventListener('fullscreenchange', () => setTimeout(bind, 100));
   document.addEventListener('webkitfullscreenchange', () => setTimeout(bind, 100));
+})();
+
+
+/* ============================================================
+   全屏 / 横屏 / 重力翻转 管理器
+   ============================================================ */
+(function initFsOrientation(){
+
+  function getContainer(){ return document.getElementById('playerContainer'); }
+  function fullscreenElement(){
+    return document.fullscreenElement || document.webkitFullscreenElement ||
+           document.mozFullScreenElement || document.msFullscreenElement || null;
+  }
+  function isFullscreen(){ return !!fullscreenElement(); }
+
+  function requestFs(el){
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen ||
+               el.mozRequestFullScreen || el.msRequestFullscreen;
+    if(!fn) return Promise.reject(new Error('不支持全屏'));
+    try{
+      const r = fn.call(el, { navigationUI:'hide' });
+      return (r && r.then) ? r : Promise.resolve();
+    }catch(e){
+      try{
+        const r = fn.call(el);
+        return (r && r.then) ? r : Promise.resolve();
+      }catch(e2){ return Promise.reject(e2); }
+    }
+  }
+
+  function exitFs(){
+    const fn = document.exitFullscreen || document.webkitExitFullscreen ||
+               document.mozCancelFullScreen || document.msExitFullscreen;
+    if(!fn) return Promise.resolve();
+    try{
+      const r = fn.call(document);
+      return (r && r.then) ? r : Promise.resolve();
+    }catch(e){ return Promise.resolve(); }
+  }
+
+  function canLock(){
+    return !!(screen.orientation && typeof screen.orientation.lock === 'function');
+  }
+
+  async function lockLandscape(){
+    if(!canLock()) return false;
+    const tries = ['landscape', 'landscape-primary'];
+    for(let i = 0; i < tries.length; i++){
+      try{ await screen.orientation.lock(tries[i]); return true; }catch(e){}
+    }
+    return false;
+  }
+
+  function unlockOrientation(){
+    if(canLock() && typeof screen.orientation.unlock === 'function'){
+      try{ screen.orientation.unlock(); }catch(e){}
+    }
+  }
+
+  /* ---------- 兜底：重力感应 + CSS 旋转 ---------- */
+  let flipDeg = 0, lastSide = null, lastAngle = 0;
+  let systemRotates = false, watching = false;
+
+  function applyFlip(deg){
+    const c = getContainer();
+    if(!c) return;
+    c.style.transformOrigin = 'center center';
+    c.style.transform = deg ? ('rotate(' + deg + 'deg)') : '';
+  }
+
+  function readSide(e){
+    const beta = typeof e.beta === 'number' ? e.beta : 0;
+    const gamma = typeof e.gamma === 'number' ? e.gamma : 0;
+    if(Math.abs(beta) > 45) return 'portrait';
+    if(Math.abs(gamma) > 45) return gamma < 0 ? 'primary' : 'secondary';
+    return null;
+  }
+
+  function onDeviceOrientation(e){
+    if(!isFullscreen() || systemRotates) return;
+    const side = readSide(e);
+    if(!side || side === 'portrait' || side === lastSide) return;
+    lastSide = side;
+    const deg = (side === 'secondary') ? 180 : 0;
+    if(deg === flipDeg) return;
+    flipDeg = deg;
+    applyFlip(deg);
+  }
+
+  function startFlipFallback(){
+    if(watching) return; watching = true;
+    window.addEventListener('deviceorientation', onDeviceOrientation, true);
+  }
+  function stopFlipFallback(){
+    if(!watching) return; watching = false;
+    window.removeEventListener('deviceorientation', onDeviceOrientation, true);
+    lastSide = null;
+    if(flipDeg){ flipDeg = 0; applyFlip(0); }
+  }
+
+  function onScreenOrientationChange(){
+    if(!isFullscreen() || !screen.orientation) return;
+    const a = screen.orientation.angle;
+    if(a !== lastAngle){
+      lastAngle = a;
+      systemRotates = true;
+      if(flipDeg){ flipDeg = 0; applyFlip(0); }
+    }
+  }
+  if(screen.orientation && screen.orientation.addEventListener){
+    screen.orientation.addEventListener('change', onScreenOrientationChange);
+  }
+
+  /* ---------- 对外：切换全屏 ---------- */
+  async function toggle(){
+    const container = getContainer();
+    if(!container) return;
+
+    if(!isFullscreen()){
+      /* 竖屏 → 全屏横屏 */
+      try{ await requestFs(container); }catch(e){ return; }
+      await lockLandscape();
+      systemRotates = false;
+      lastAngle = (screen.orientation && screen.orientation.angle) || 0;
+      lastSide = null; flipDeg = 0; applyFlip(0);
+      startFlipFallback();
+    } else {
+      /* 全屏横屏 → 退出 → 竖屏 */
+      stopFlipFallback();
+      systemRotates = false;
+      unlockOrientation(); // 先解锁方向
+      await exitFs();      // 再退出全屏
+    }
+  }
+
+  window.toggleFullscreen = toggle;
+  window.__isFullscreen = isFullscreen;
 })();
 
 
@@ -1739,15 +1834,10 @@ wrap.addEventListener('touchcancel', () => {
     rateBtn.textContent = rates[rateIdx] + 'x';
   };
 
-  /* ---------- 全屏 ---------- */
-  fsBtn.onclick = () => {
-    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-    if(fsEl){
-      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    } else {
-      (container.requestFullscreen || container.webkitRequestFullscreen).call(container);
-    }
-  };
+/* ---------- 全屏 ---------- */
+fsBtn.onclick = () => {
+  window.toggleFullscreen();   // 调用新的全屏 / 横屏 / 重力翻转管理器
+};
 
 /* ---------- 点视频显示/隐藏控件（仅桌面端；移动端交给手势模块） ---------- */
 let lastTouchTs = 0;
@@ -2317,6 +2407,27 @@ async function gotoPage(targetUrl){
 
 function closeDetailUI(){
   destroyHls();
+
+  // 如果在全屏，先退出全屏 + 解锁方向，避免卡在横屏
+  if(document.fullscreenElement ||
+     document.webkitFullscreenElement ||
+     document.mozFullScreenElement ||
+     document.msFullscreenElement){
+
+    if(screen.orientation && screen.orientation.unlock){
+      try{ screen.orientation.unlock(); }catch(e){}
+    }
+    const ex = document.exitFullscreen ||
+               document.webkitExitFullscreen ||
+               document.mozCancelFullScreen ||
+               document.msExitFullscreen;
+    if(ex){ try{ ex.call(document); }catch(e){} }
+  }
+
+  // 清掉重力翻转留下的 CSS 旋转
+  const c = document.getElementById('playerContainer');
+  if(c) c.style.transform = '';
+
   $('#mask').classList.remove('show');
   currentDetailItem = null;
   window._currentEpIndex = -1;

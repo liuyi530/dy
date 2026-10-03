@@ -1328,6 +1328,13 @@ function destroyHls(){
   }
 
   function onEnd(e){
+    // 1. 如果点击或触摸的目标在控制栏内部（包括进度条、播放按钮等），直接返回，不触发显隐切换
+    if (e.target && e.target.closest('.video-ctrl')) {
+      if (swiping) swiping = false;
+      isRealMove = false;
+      return;
+    }
+
     // 结算滑动 Seek 动作
     if (swiping) {
       swiping = false;
@@ -1362,6 +1369,7 @@ function destroyHls(){
       }, 300);
     }
   }
+
 
   /* ---------- 事件绑定 ---------- */
   function bind(){
@@ -1580,10 +1588,16 @@ function setupPlayerEvents(video, ui) {
 
 /* ---------- 触摸进度条 ---------- */
 wrap.addEventListener('touchstart', e => {
-  e.stopPropagation(); // 阻止冒泡给外层 container Swipe 手势，避免触发冲突
+  e.stopPropagation(); // 阻止冒泡给容器，防止触发 toggleControls
   isDragging = true;
   updateDragUI(e.touches[0].clientX);
 }, { passive: true });
+
+// ★ 新增：阻止 click 事件冒泡，防止点击进度条时触发视频容器的 toggleControls
+wrap.addEventListener('click', e => {
+  e.stopPropagation();
+});
+
 
 wrap.addEventListener('touchmove', e => {
   if(!isDragging) return;

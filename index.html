@@ -2533,16 +2533,16 @@ async function openDetail(item){
   try{
     let detailData;
 
-    // ★ 飞流视频：直接用搜索结果里的 _sources，不请求详情页
-    if(currentSource === 'flixflop'){
-      const playList = SOURCES.flixflop.buildPlayListFromSources(item._sources);
-      detailData = {
-        cover: item.cover || '',
-        magnets: [],
-        playPageUrl: '',
-        playList
-      };
-    } } else {
+// ★ 飞流视频：直接用搜索结果里的 _sources，不请求详情页
+if(currentSource === 'flixflop'){
+  const playList = SOURCES.flixflop.buildPlayListFromSources(item._sources);
+  detailData = {
+    cover: item.cover || '',
+    magnets: [],
+    playPageUrl: '',
+    playList
+  };
+} else {
   const html = await requestUrl(item.href);
   if(!detailOpen) return;
   const src = SOURCES[currentSource];

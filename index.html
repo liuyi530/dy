@@ -1215,14 +1215,13 @@ function destroyHls(){
     lastTapY = t.clientY;
   }
 
-/* ---------- 全屏底部滑动进度（拖动中只更新 UI，松手才 seek） ---------- */
+/* ---------- 全屏底部 50% 左右滑动进度（实时更新进度条+时间） ---------- */
 let swiping = false;
 let startX = 0, startCurrent = 0, duration = 0;
 let swipeTarget = null;
 
-function getFsTarget(){
-  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-  return fsEl || document.getElementById('playerContainer');
+function getUI(){
+  return window._playerUI || null;
 }
 
 function onStart(e){
@@ -1230,8 +1229,16 @@ function onStart(e){
   const video = getVideo();
   if(!video || !video.duration) return;
   const t = e.touches[0];
-  const h = window.innerHeight;
-  if(t.clientY < h * (1 - BOTTOM_RATIO)) return;
+
+  // ★ 用容器 rect 判断底部 50%，比 window.innerHeight 更准
+  const container = document.getElementById('playerContainer');
+  if(!container) return;
+  const rect = container.getBoundingClientRect();
+  const relativeY = t.clientY - rect.top;
+  const h = rect.height;
+
+  if(relativeY < h * 0.5) return;   // 上半屏不响应
+
   swiping = true;
   startX = t.clientX;
   startCurrent = video.currentTime;
@@ -1242,55 +1249,49 @@ function onStart(e){
 function onMove(e){
   if(!swiping) return;
   const video = getVideo();
-  if(!video) return;
+  if(!video || !video.duration) return;
+
   const t = e.touches[0];
   const dx = t.clientX - startX;
   const w = window.innerWidth;
+
+  // 滑动灵敏度系数：划过全屏宽度调整 50% 总时长
   const deltaSec = (dx / w) * duration * 0.5;
   let target = startCurrent + deltaSec;
   if(target < 0) target = 0;
   if(target > duration) target = duration;
 
-  // ★ 只更新提示，不动 video.currentTime
   swipeTarget = target;
-  showSeekHint(target, duration);
 
-  e.preventDefault();
+  // ★ 实时更新进度条 UI (Fill + Dot + Time)
+  const ui = getUI();
+  if(ui && ui.fill && ui.dot && ui.timeEl){
+    const pct = (target / duration) * 100;
+    ui.fill.style.width = pct + '%';
+    ui.dot.style.left   = pct + '%';
+    ui.timeEl.textContent = fmt(target) + ' / ' + fmt(duration);
+  }
+
+  // 显示快进/快退浮动 Toast 提示
+  const delta = target - startCurrent;
+  const side = delta >= 0 ? 'right' : 'left';
+  showJumpToast(side, Math.round(delta), target);
+
+  if(e.cancelable) e.preventDefault();
 }
+
 
 function onEnd(){
   if(!swiping) return;
   swiping = false;
-  hideSeekHint();
   if(swipeTarget != null){
     const video = getVideo();
     if(video && video.duration){
-      // ★ 松手才真正 seek，一次性跳，让 HLS 缓冲
+      // ★ 松手才真正 seek
       video.currentTime = swipeTarget;
     }
     swipeTarget = null;
   }
-}
-
-function showSeekHint(cur, dur){
-  let el = document.getElementById('seekHint');
-  if(!el){
-    el = document.createElement('div');
-    el.id = 'seekHint';
-    el.style.cssText =
-      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);' +
-      'background:rgba(0,0,0,.78);color:#fff;padding:14px 26px;' +
-      'border-radius:14px;font-size:16px;font-weight:700;' +
-      'z-index:999999;pointer-events:none;backdrop-filter:blur(6px);' +
-      'transition:opacity .15s;';
-    document.body.appendChild(el);
-  }
-  el.textContent = fmt(cur) + ' / ' + fmt(dur);
-  el.style.opacity = '1';
-}
-function hideSeekHint(){
-  const el = document.getElementById('seekHint');
-  if(el) el.style.opacity = '0';
 }
 
 function bind(){
@@ -1313,7 +1314,7 @@ function bind(){
   swipeTargets.forEach(t => {
     if(!t || t.__swipeBound) return;
     t.__swipeBound = true;
-    t.addEventListener('touchstart',  onStart, { passive: true });
+    t.addEventListener('touchstart',  onStart, { passive: false });
     t.addEventListener('touchmove',   onMove,  { passive: false });
     t.addEventListener('touchend',    onEnd);
     t.addEventListener('touchcancel', onEnd);
@@ -1364,6 +1365,8 @@ function setupVideoControls(){
   const fill    = ctrl.querySelector('.progress-fill');
   const dot     = ctrl.querySelector('.progress-dot');
   const wrap    = ctrl.querySelector('.progress-wrap');
+  // 暴露给全屏滑动手势复用
+window._playerUI = { fill, dot, timeEl, video };
 
   function fmt(s){
     if(!isFinite(s)) return '0:00';
@@ -1465,11 +1468,26 @@ function setupVideoControls(){
     if(isDragging) commitDrag();
   });
 
-  /* ---------- 触摸 ---------- */
-  wrap.addEventListener('touchstart', e => {
-    isDragging = true;
-    updateDragUI(e.touches[0].clientX);
-  }, { passive: true });
+/* ---------- 触摸进度条 ---------- */
+wrap.addEventListener('touchstart', e => {
+  e.stopPropagation(); // 阻止冒泡给外层 container Swipe 手势，避免触发冲突
+  isDragging = true;
+  updateDragUI(e.touches[0].clientX);
+}, { passive: true });
+
+wrap.addEventListener('touchmove', e => {
+  if(!isDragging) return;
+  updateDragUI(e.touches[0].clientX);
+  if(e.cancelable) e.preventDefault();
+}, { passive: false });
+
+wrap.addEventListener('touchend', () => {
+  if(isDragging) commitDrag();
+});
+wrap.addEventListener('touchcancel', () => {
+  if(isDragging) commitDrag();
+});
+
 
   wrap.addEventListener('touchmove', e => {
     if(!isDragging) return;

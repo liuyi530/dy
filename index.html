@@ -1286,13 +1286,22 @@ function startHideTimer(){
     return window._playerUI || null;
   }
 
-  function onStart(e){
-    if (e.touches.length !== 1) return;
-    const t = e.touches[0];
-    startX = t.clientX;
-    startY = t.clientY;
-    isRealMove = false;
+function onStart(e){
+  if (e.touches.length !== 1) return;
+
+  // ★ 新增：触摸点在控制栏（进度条 + 按钮行）内时，不触发全屏滑动 seek
+  if (e.target && e.target.closest('.video-ctrl')) {
     swiping = false;
+    isRealMove = false;
+    window._swiping = false;
+    return;
+  }
+
+  const t = e.touches[0];
+  startX = t.clientX;
+  startY = t.clientY;
+  isRealMove = false;
+  swiping = false;
 
 // 仅在全屏且下半屏触发 Seek 滑动
 if (isFullscreen()) {

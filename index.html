@@ -1159,39 +1159,13 @@ function destroyHls(){
     );
   }
 
-  container.addEventListener('click', (e) => {
-    if (e.target.closest('.video-ctrl')) return;
-    if (Date.now() - lastTouchTs < 600) return;
-    container.classList.toggle('ctrl-show');
-  });
-
-  /* ---------- 全屏状态变化时同步方向锁（兜底） ---------- */
-  if(!document.__orientBound){
-    document.__orientBound = true;
-
-    const handleFsChange = () => {
-      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-      if(fsEl){
-        // 进入全屏
-        try {
-          if (screen.orientation && screen.orientation.lock) {
-            screen.orientation.lock('landscape-primary').catch(()=>{});
-          }
-        } catch(e){}
-      } else {
-        // 退出全屏（不管怎么退出的）
-        try {
-          if (screen.orientation && screen.orientation.unlock) {
-            screen.orientation.unlock();
-          }
-        } catch(e){}
-      }
-    };
-
-    document.addEventListener('fullscreenchange', handleFsChange);
-    document.addEventListener('webkitfullscreenchange', handleFsChange);
+  // 2. 切换控制面板显示/隐藏（控制 UI 显隐）
+  function toggleControls() {
+    const container = document.getElementById('playerContainer');
+    if (container) {
+      container.classList.toggle('ctrl-show');
+    }
   }
-}
 
   // 3. 带有错误捕获与多端兼容的全屏/横屏切换（挂载到全局 window.toggleFullscreen）
   window.toggleFullscreen = async function toggleFullscreen() {
@@ -1630,50 +1604,15 @@ wrap.addEventListener('touchcancel', () => {
     rateBtn.textContent = rates[rateIdx] + 'x';
   };
 
-/* ---------- 全屏（进入锁横屏 / 退出恢复竖屏） ---------- */
-fsBtn.onclick = async () => {
-  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-
-  if(fsEl){
-    // ---------- 退出全屏 ----------
-    try {
-      if (document.exitFullscreen) await document.exitFullscreen();
-      else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
-      else if (document.mozCancelFullScreen) await document.mozCancelFullScreen();
-      else if (document.msExitFullscreen) await document.msExitFullscreen();
-    } catch(e) {
-      console.warn('退出全屏失败:', e);
+  /* ---------- 全屏 ---------- */
+  fsBtn.onclick = () => {
+    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+    if(fsEl){
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else {
+      (container.requestFullscreen || container.webkitRequestFullscreen).call(container);
     }
-
-    // 恢复竖屏（部分浏览器支持，iOS Safari 不支持会自动忽略）
-    try {
-      if (screen.orientation && screen.orientation.unlock) {
-        screen.orientation.unlock();
-      }
-    } catch(e){}
-
-  } else {
-    // ---------- 进入全屏 ----------
-    try {
-      if (container.requestFullscreen) await container.requestFullscreen();
-      else if (container.webkitRequestFullscreen) await container.webkitRequestFullscreen();
-      else if (container.mozRequestFullScreen) await container.mozRequestFullScreen();
-      else if (container.msRequestFullscreen) await container.msRequestFullscreen();
-    } catch(e) {
-      console.warn('进入全屏失败:', e);
-      return;
-    }
-
-    // ★ 关键：必须等全屏成功之后再锁横屏
-    try {
-      if (screen.orientation && screen.orientation.lock) {
-        await screen.orientation.lock('landscape-primary');
-      }
-    } catch(e) {
-      console.warn('横屏锁定被拒绝:', e);
-    }
-  }
-};
+  };
 
 /* ---------- 点视频显示/隐藏控件（仅桌面端；移动端交给手势模块） ---------- */
 let lastTouchTs = 0;

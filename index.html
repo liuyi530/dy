@@ -1315,6 +1315,10 @@ function destroyHls(){
 /* ============================================================
    自定义播放器控件（不依赖原生全屏）
    ============================================================ */
+/* ============================================================
+   自定义播放器控件（不依赖原生全屏）
+   进度条：拖动中只更新 UI，松手才 seek，seek 不了就挂起等缓冲
+   ============================================================ */
 function setupVideoControls(){
   const container = document.getElementById('playerContainer');
   const video = document.getElementById('playerVideo');
@@ -1353,75 +1357,120 @@ function setupVideoControls(){
     return m + ':' + (ss < 10 ? '0' : '') + ss;
   }
 
+  /* ---------- 播放 / 暂停 ---------- */
   playBtn.onclick = () => { video.paused ? video.play() : video.pause(); };
-  video.addEventListener('play',  () => { playBtn.textContent = '⏸'; });
-  video.addEventListener('pause', () => { playBtn.textContent = '▶'; });
+  video.addEventListener('play',  () => { playBtn.textContent = '暂停'; });
+  video.addEventListener('pause', () => { playBtn.textContent = '播放'; });
 
+  /* ---------- 状态 ---------- */
+  let dragPct     = 0;
+  let isDragging  = false;
+  let pendingSeek = null;
+
+  /* ---------- timeupdate（拖动中不覆盖 UI） ---------- */
   video.addEventListener('timeupdate', () => {
+    if(isDragging) return;
     const pct = video.duration ? (video.currentTime / video.duration) * 100 : 0;
     fill.style.width = pct + '%';
-    dot.style.left = pct + '%';
+    dot.style.left   = pct + '%';
     timeEl.textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
   });
 
-let pendingSeek = null;   // 待跳转目标（秒）
-let dragging = false;     // ★ 提前声明
-
-function seekAt(clientX){
-  const r = wrap.getBoundingClientRect();
-  const pct = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-  const video = document.getElementById('playerVideo');
-  if(!video || !video.duration || !isFinite(video.duration)) return;
-
-  const target = pct * video.duration;
-
-  // ① 立刻把 UI 进度条跳到目标位置（不依赖视频状态）
-  fill.style.width = pct * 100 + '%';
-  dot.style.left   = pct * 100 + '%';
-  timeEl.textContent = fmt(target) + ' / ' + fmt(video.duration);
-
-  // ② 检查是否可 seek
-  const ok = canSeekTo(video, target);
-  if(ok){
-    video.currentTime = target;
-    pendingSeek = null;
-  } else {
-    // 不可 seek：记下待跳目标，等 seekable 更新后跳
-    pendingSeek = target;
+  function getPctFromX(clientX){
+    const r = wrap.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (clientX - r.left) / r.width));
   }
-}
 
-function canSeekTo(video, t){
-  if(!video.seekable || video.seekable.length === 0) return false;
-  for(let i = 0; i < video.seekable.length; i++){
-    if(t >= video.seekable.start(i) && t <= video.seekable.end(i)) return true;
-  }
-  return false;
-}
-
-// 监听 seeked / progress / canplay，自动完成 pendingSeek
-const videoEl = document.getElementById('playerVideo');
-if(videoEl && !videoEl.__pendingSeekBound){
-  videoEl.__pendingSeekBound = true;
-  const tryPending = () => {
-    if(pendingSeek == null) return;
-    if(canSeekTo(videoEl, pendingSeek)){
-      videoEl.currentTime = pendingSeek;
-      pendingSeek = null;
+  function updateDragUI(clientX){
+    const pct = getPctFromX(clientX);
+    dragPct = pct;
+    fill.style.width = pct * 100 + '%';
+    dot.style.left   = pct * 100 + '%';
+    if(video.duration && isFinite(video.duration)){
+      timeEl.textContent = fmt(pct * video.duration) + ' / ' + fmt(video.duration);
     }
-  };
-  videoEl.addEventListener('progress', tryPending);
-  videoEl.addEventListener('canplay', tryPending);
-  videoEl.addEventListener('seeked',  tryPending);
-}
+  }
 
-  wrap.addEventListener('mousedown', e => { dragging = true; seekAt(e.clientX); });
-  window.addEventListener('mousemove', e => { if(dragging) seekAt(e.clientX); });
-  window.addEventListener('mouseup',   () => { dragging = false; });
-  wrap.addEventListener('touchstart', e => { dragging = true; seekAt(e.touches[0].clientX); }, {passive:true});
-  wrap.addEventListener('touchmove',  e => { if(dragging){ seekAt(e.touches[0].clientX); e.preventDefault(); } }, {passive:false});
-  wrap.addEventListener('touchend',   () => { dragging = false; });
+  function canSeekTo(v, t){
+    if(!v.seekable || v.seekable.length === 0) return false;
+    for(let i = 0; i < v.seekable.length; i++){
+      if(t >= v.seekable.start(i) && t <= v.seekable.end(i)) return true;
+    }
+    return false;
+  }
 
+  function doSeek(target){
+    // ① UI 先定到目标位置
+    const pct = video.duration ? target / video.duration : 0;
+    fill.style.width = pct * 100 + '%';
+    dot.style.left   = pct * 100 + '%';
+    if(video.duration && isFinite(video.duration)){
+      timeEl.textContent = fmt(target) + ' / ' + fmt(video.duration);
+    }
+    // ② 能 seek 就立刻跳，不能就挂起
+    if(canSeekTo(video, target)){
+      video.currentTime = target;
+      pendingSeek = null;
+    } else {
+      pendingSeek = target;
+    }
+  }
+
+  function commitDrag(){
+    if(!isDragging) return;
+    isDragging = false;
+    if(!video.duration || !isFinite(video.duration)) return;
+    doSeek(dragPct * video.duration);
+  }
+
+  // 挂起的 seek 自动完成
+  if(!video.__pendingSeekBound){
+    video.__pendingSeekBound = true;
+    const tryPending = () => {
+      if(pendingSeek == null) return;
+      if(canSeekTo(video, pendingSeek)){
+        video.currentTime = pendingSeek;
+        pendingSeek = null;
+      }
+    };
+    video.addEventListener('progress', tryPending);
+    video.addEventListener('canplay',  tryPending);
+    video.addEventListener('seeked',   tryPending);
+    setInterval(tryPending, 500);
+  }
+
+  /* ---------- 鼠标 ---------- */
+  wrap.addEventListener('mousedown', e => {
+    isDragging = true;
+    updateDragUI(e.clientX);
+  });
+  window.addEventListener('mousemove', e => {
+    if(isDragging) updateDragUI(e.clientX);
+  });
+  window.addEventListener('mouseup', () => {
+    if(isDragging) commitDrag();
+  });
+
+  /* ---------- 触摸 ---------- */
+  wrap.addEventListener('touchstart', e => {
+    isDragging = true;
+    updateDragUI(e.touches[0].clientX);
+  }, { passive: true });
+
+  wrap.addEventListener('touchmove', e => {
+    if(!isDragging) return;
+    updateDragUI(e.touches[0].clientX);
+    e.preventDefault();
+  }, { passive: false });
+
+  wrap.addEventListener('touchend', () => {
+    if(isDragging) commitDrag();
+  });
+  wrap.addEventListener('touchcancel', () => {
+    if(isDragging) commitDrag();
+  });
+
+  /* ---------- 倍速 ---------- */
   const rates = [1, 1.25, 1.5, 2, 0.5, 0.75];
   let rateIdx = 0;
   rateBtn.onclick = () => {
@@ -1430,6 +1479,7 @@ if(videoEl && !videoEl.__pendingSeekBound){
     rateBtn.textContent = rates[rateIdx] + 'x';
   };
 
+  /* ---------- 全屏 ---------- */
   fsBtn.onclick = () => {
     const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
     if(fsEl){
@@ -1439,6 +1489,7 @@ if(videoEl && !videoEl.__pendingSeekBound){
     }
   };
 
+  /* ---------- 点视频显示/隐藏控件 ---------- */
   video.addEventListener('click', () => {
     container.classList.toggle('ctrl-show');
   });

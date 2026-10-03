@@ -580,163 +580,7 @@ feikuai: {
     }
   },
 
-  /* -------------------------- 奈飞 -------------------------- */
-  netflix: {
-    name: '奈飞',
-    base: 'https://netflixgc.net',
 
-    getSearchUrl: function(kw){
-      return this.base + '/vodsearch/-------------.html?wd=' + encodeURIComponent(kw);
-    },
-    getSearchUrlGet: function(kw){
-      return this.base + '/vodsearch/-------------.html?wd=' + encodeURIComponent(kw);
-    },
-    getSearchOptions: function(kw){
-      return { method: 'GET' };
-    },
-
-parseList: function(html){
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const list = [];
-  const seen = new Set();
-
-  const pickCover = (scope) => pickAttr(scope, '.detail-pic img, img', 'data-src,src');
-
-  /* ---------- ① 解析列表 ---------- */
-  const boxes = doc.querySelectorAll('.public-list-box');
-  if(boxes.length){
-    boxes.forEach(box => {
-      const a = box.querySelector('a[href*="/voddetail/"]');
-      if(!a) return;
-      const href = a.getAttribute('href') || '';
-      if(!href || seen.has(href)) return;
-
-      const name = pickText(box, '.slide-info-title, h3');
-      if(!name) return;
-      seen.add(href);
-
-      const year = pickText(box, '.public-list-prb, .slide-info-remarks');
-
-      list.push({
-        name,
-        year,
-        rank: '',
-        cover: abs(pickCover(box), this.base),
-        href: abs(href, this.base)
-      });
-    });
-  }
-
-  /* ★ 奈飞搜索页用 .search-list，补上 */
-  if(list.length === 0){
-    doc.querySelectorAll('.search-list').forEach(box => {
-      const a = box.querySelector('a[href*="/voddetail/"]');
-      if(!a) return;
-      const href = a.getAttribute('href') || '';
-      if(!href || seen.has(href)) return;
-
-      const name = pickText(box, '.slide-info-title, h3');
-      if(!name) return;
-      seen.add(href);
-
-      const year = pickText(box, '.slide-info-remarks');
-
-      list.push({
-        name,
-        year,
-        rank: '',
-        cover: abs(pickCover(box), this.base),
-        href: abs(href, this.base)
-      });
-    });
-  }
-
-  /* ★ 兜底：直接找 /voddetail/ */
-  if(list.length === 0){
-    doc.querySelectorAll('a[href*="/voddetail/"]').forEach(a => {
-      const href = a.getAttribute('href') || '';
-      if(!href || seen.has(href)) return;
-
-      const scope = a.closest('.search-list') ||
-                    a.closest('.public-list-box') ||
-                    a.closest('li') ||
-                    a.parentElement || a;
-
-      const name = pickText(scope, '.slide-info-title, h3') || a.textContent.trim();
-      if(!name || name.length > 60) return;
-      seen.add(href);
-
-      list.push({
-        name,
-        year: '',
-        rank: '',
-        cover: abs(pickCover(scope), this.base),
-        href: abs(href, this.base)
-      });
-    });
-  }
-
-  /* ---------- ② 分页解析 ---------- */
-  let currentPage = 1;
-  let totalPages  = 1;
-  let totalCount  = list.length;
-  let prevUrl     = '';
-  let nextUrl     = '';
-
-  /* 结果总数：.mac-total */
-  const macTotalEl = doc.querySelector('.mac-total');
-  if(macTotalEl){
-    const n = parseInt(macTotalEl.textContent.trim(), 10);
-    if(!isNaN(n)) totalCount = n;
-  }
-
-  /* 当前页/总页数：.page-tip 文本 "共93条数据,当前1/10页" */
-  const pageTip = doc.querySelector('.pages .page-tip');
-  if(pageTip){
-    const text = pageTip.textContent || '';
-    const m1 = text.match(/共\s*(\d+)\s*条/);
-    const m2 = text.match(/当前\s*(\d+)\s*\/\s*(\d+)\s*页/);
-    if(m1){
-      const n = parseInt(m1[1], 10);
-      if(!isNaN(n)) totalCount = n;
-    }
-    if(m2){
-      currentPage = parseInt(m2[1], 10) || 1;
-      totalPages  = parseInt(m2[2], 10) || 1;
-    }
-  }
-
-  /* 上一页 / 下一页 URL */
-  const links = parseAnchorPageInfo(doc, this.base);
-  prevUrl = links.prevUrl;
-  nextUrl = links.nextUrl;
-
-  const hasPrev = currentPage > 1;
-  const hasMore = currentPage < totalPages;
-  if(!hasPrev) prevUrl = '';
-  if(!hasMore) nextUrl = '';
-
-  return {
-    list,
-    prevUrl,
-    nextUrl,
-    hasPrev,
-    hasMore,
-    currentPage,
-    totalPages,
-    totalCount
-  };
-},
-
-    parseDetail: function(html){
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-
-      const cover = abs(pickAttr(doc, '.detail-pic img, .vodImg img', 'data-src,src'), this.base);
-      const playList = parseTabBoxPlayList(doc, this.base);
-
-      return { cover, magnets: [], playPageUrl: '', playList };
-    }
-  },
 
   /* ------------------------ 飞流视频 ------------------------ */
   flixflop: {
@@ -1058,28 +902,13 @@ function extractPlayerIframe(html){
   for(let i = 0; i < candidates.length; i++){
     if(/ec\.php/i.test(candidates[i])) return candidates[i];
   }
-  for(let i = 0; i < candidates.length; i++){
-    if(/netflixgc/i.test(candidates[i])) return candidates[i];
-  }
+
   for(let i = 0; i < candidates.length; i++){
     if(/union\.maccms|prestrain|ads?|advert|doubleclick|googlesyndication/i.test(candidates[i])) continue;
     return candidates[i];
   }
 
   const pm = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/);
-  if(pm){
-    try {
-      const obj = JSON.parse(pm[1]);
-      if(obj && obj.url){
-        let decoded = obj.url;
-        try { decoded = atob(obj.url); } catch(e){}
-        try { decoded = decodeURIComponent(decoded); } catch(e){}
-        if(!decoded) decoded = obj.url;
-        return 'https://cjbfq.netflixgc.tv/player/ec.php?code=netflix&if=1&url=' + decoded;
-      }
-    } catch(e){}
-  }
-
   return '';
 }
 
@@ -2951,7 +2780,6 @@ function switchSource(src){
     { src:'xiaomifeng', name:'小蜜蜂' },
     { src:'feikuai',    name:'飞快TV' },
     { src:'ffzy',       name:'非凡资源' },
-    { src:'netflix',    name:'奈飞' },
     { src:'flixflop',   name:'飞流视频' },
     { src:'jiexi',      name:'视频解析' }
   ];

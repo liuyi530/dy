@@ -1495,10 +1495,20 @@ function fmt(s){
 
 
 
-  function getPctFromX(clientX){
-    const r = wrap.getBoundingClientRect();
-    return Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-  }
+  // ★ 用绿色细线（progress-bg）的真实矩形算百分比，避免偏移
+function getPctFromX(clientX){
+  const bg = wrap.querySelector('.progress-bg');
+  const r = (bg ? bg : wrap).getBoundingClientRect();
+  return Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+}
+
+// ★ 新增：判断触点是否在细线上下一定范围内（含触摸容差）
+function isInTrackZone(clientY){
+  const bg = wrap.querySelector('.progress-bg');
+  const r = (bg ? bg : wrap).getBoundingClientRect();
+  const padding = 12; // 上下容差（px），方便手指点到细线
+  return clientY >= r.top - padding && clientY <= r.bottom + padding;
+}
 
   function updateDragUI(clientX){
     const pct = getPctFromX(clientX);
@@ -1558,11 +1568,12 @@ function doSeek(target){
     setInterval(tryPending, 500);
   }
 
-  /* ---------- 鼠标 ---------- */
-  wrap.addEventListener('mousedown', e => {
-    isDragging = true;
-    updateDragUI(e.clientX);
-  });
+/* ---------- 鼠标 ---------- */
+wrap.addEventListener('mousedown', e => {
+  if (!isInTrackZone(e.clientY)) return;   // ★ 只响应细线区域
+  isDragging = true;
+  updateDragUI(e.clientX);
+});
   window.addEventListener('mousemove', e => {
     if(isDragging) updateDragUI(e.clientX);
   });
@@ -1573,6 +1584,7 @@ function doSeek(target){
 /* ---------- 触摸进度条 ---------- */
 wrap.addEventListener('touchstart', e => {
   e.stopPropagation(); // 阻止冒泡给容器，防止触发 toggleControls
+  if (!isInTrackZone(e.touches[0].clientY)) return;   // ★ 只响应细线区域
   isDragging = true;
   updateDragUI(e.touches[0].clientX);
 }, { passive: true });
@@ -1596,7 +1608,7 @@ wrap.addEventListener('touchcancel', () => {
 });
 
   /* ---------- 倍速 ---------- */
-  const rates = [1, 1.25, 1.5, 2, 0.5, 0.75];
+  const rates = [1, 1.25, 1.5, 2];
   let rateIdx = 0;
   rateBtn.onclick = () => {
     rateIdx = (rateIdx + 1) % rates.length;

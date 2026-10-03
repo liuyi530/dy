@@ -1159,13 +1159,39 @@ function destroyHls(){
     );
   }
 
-  // 2. 切换控制面板显示/隐藏（控制 UI 显隐）
-  function toggleControls() {
-    const container = document.getElementById('playerContainer');
-    if (container) {
-      container.classList.toggle('ctrl-show');
-    }
+  container.addEventListener('click', (e) => {
+    if (e.target.closest('.video-ctrl')) return;
+    if (Date.now() - lastTouchTs < 600) return;
+    container.classList.toggle('ctrl-show');
+  });
+
+  /* ---------- 全屏状态变化时同步方向锁（兜底） ---------- */
+  if(!document.__orientBound){
+    document.__orientBound = true;
+
+    const handleFsChange = () => {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+      if(fsEl){
+        // 进入全屏
+        try {
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape-primary').catch(()=>{});
+          }
+        } catch(e){}
+      } else {
+        // 退出全屏（不管怎么退出的）
+        try {
+          if (screen.orientation && screen.orientation.unlock) {
+            screen.orientation.unlock();
+          }
+        } catch(e){}
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFsChange);
+    document.addEventListener('webkitfullscreenchange', handleFsChange);
   }
+}
 
   // 3. 带有错误捕获与多端兼容的全屏/横屏切换（挂载到全局 window.toggleFullscreen）
   window.toggleFullscreen = async function toggleFullscreen() {
@@ -1257,120 +1283,166 @@ function destroyHls(){
   }
 
   /* ---------- 统一的手势状态与全屏 Seek ---------- */
-  let touchTimer = null;
-  let lastTapTime = 0;
-  let startX = 0, startY = 0;
-  let isRealMove = false;
-  let swiping = false;
-  let startCurrent = 0, duration = 0;
-  let swipeTarget = null;
+let touchTimer = null;
+let lastTapTime = 0;
+let startX = 0, startY = 0;
+let isRealMove = false;
+let swiping = false;
+let startCurrent = 0, duration = 0;
+let swipeTarget = null;
+// ★ 新增：下滑退出全屏的候选状态
+let exitFsCandidate = false;
+let exitFsStartY = 0;
+let exitFsStartTime = 0;
 
   function getUI(){
     return window._playerUI || null;
   }
 
-  function onStart(e){
-    if (e.touches.length !== 1) return;
-    const t = e.touches[0];
-    startX = t.clientX;
-    startY = t.clientY;
-    isRealMove = false;
-    swiping = false;
-
-// 仅在全屏且下半屏触发 Seek 滑动
-if (isFullscreen()) {
-  const video = getVideo();
-  const container = document.getElementById('playerContainer');
-  if (video && video.duration && container) {
-    const rect = container.getBoundingClientRect();
-    if ((t.clientY - rect.top) >= rect.height * 0.5) {
-      swiping = true;
-      window._swiping = true;         // ← 新增
-      startCurrent = video.currentTime;
-      duration = video.duration;
-      swipeTarget = null;
-    }
-  }
-}
-  }
-
-  function onMove(e){
-    if (e.touches.length !== 1) return;
-    const t = e.touches[0];
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-      isRealMove = true;
-    }
-
-    if (swiping && isRealMove && duration > 0) {
-      const w = window.innerWidth;
-      const deltaSec = (dx / w) * duration * 0.5;
-      let target = startCurrent + deltaSec;
-      if (target < 0) target = 0;
-      if (target > duration) target = duration;
-
-      swipeTarget = target;
-
-      const ui = getUI();
-      if(ui && ui.fill && ui.dot && ui.timeEl){
-        const pct = (target / duration) * 100;
-        ui.fill.style.width = pct + '%';
-        ui.dot.style.left   = pct + '%';
-        ui.timeEl.textContent = fmt(target) + ' / ' + fmt(duration);
-      }
-
-      const delta = target - startCurrent;
-      showJumpToast(delta >= 0 ? 'right' : 'left', Math.round(delta), target);
-
-      if(e.cancelable) e.preventDefault();
-    }
-  }
-
-  function onEnd(e){
-    // 1. 如果点击或触摸的目标在控制栏内部（包括进度条、播放按钮等），直接返回，不触发显隐切换
-if (e.target && e.target.closest('.video-ctrl')) {
-  if (swiping) swiping = false;
-  window._swiping = false;              // ← 新增这一行
+function onStart(e){
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  startX = t.clientX;
+  startY = t.clientY;
   isRealMove = false;
-  return;
-}
-
-if (swiping) {
   swiping = false;
-  window._swiping = false;              // ← 新增这一行
-  if (isRealMove && swipeTarget !== null) {
+  exitFsCandidate = false;      // ★ 重置
+
+  if (isFullscreen()) {
     const video = getVideo();
-    if (video) video.currentTime = swipeTarget;
+    const container = document.getElementById('playerContainer');
+    if (video && video.duration && container) {
+      const rect = container.getBoundingClientRect();
+      const ratio = (t.clientY - rect.top) / rect.height;
+
+      if (ratio >= 0.4 && ratio <= 0.7) {
+        // ★ 40%~70% 区域：候选"下滑退出全屏"
+        exitFsCandidate = true;
+        exitFsStartY = t.clientY;
+        exitFsStartTime = Date.now();
+      } else if (ratio > 0.7) {
+        // 70%~100%：左右滑动 seek（原有逻辑，范围缩小）
+        swiping = true;
+        window._swiping = true;
+        startCurrent = video.currentTime;
+        duration = video.duration;
+        swipeTarget = null;
+      }
+    }
   }
-  swipeTarget = null;
 }
 
-    // 若发生了位移滑动，放弃点击与双击判定
-    if (isRealMove) {
-      if (touchTimer) {
-        clearTimeout(touchTimer);
-        touchTimer = null;
+function onMove(e){
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  const dx = t.clientX - startX;
+  const dy = t.clientY - startY;
+
+  if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+    isRealMove = true;
+  }
+
+  // ★ 新增：下滑退出全屏的候选处理
+  if (exitFsCandidate) {
+    if (dy > 0) {
+      // 向下滑 → 阻止页面滚动
+      if(e.cancelable) e.preventDefault();
+    } else if (dy < -10) {
+      // 向上滑 → 取消候选
+      exitFsCandidate = false;
+    }
+    return;
+  }
+
+  if (swiping && isRealMove && duration > 0) {
+    const w = window.innerWidth;
+    const deltaSec = (dx / w) * duration * 0.5;
+    let target = startCurrent + deltaSec;
+    if (target < 0) target = 0;
+    if (target > duration) target = duration;
+
+    swipeTarget = target;
+
+    const ui = getUI();
+    if(ui && ui.fill && ui.dot && ui.timeEl){
+      const pct = (target / duration) * 100;
+      ui.fill.style.width = pct + '%';
+      ui.dot.style.left   = pct + '%';
+      ui.timeEl.textContent = fmt(target) + ' / ' + fmt(duration);
+    }
+
+    const delta = target - startCurrent;
+    showJumpToast(delta >= 0 ? 'right' : 'left', Math.round(delta), target);
+
+    if(e.cancelable) e.preventDefault();
+  }
+}
+
+function onEnd(e){
+  // 0. ★ 新增：处理"下滑退出全屏"
+  if (exitFsCandidate) {
+    const endY = (e.changedTouches && e.changedTouches[0])
+      ? e.changedTouches[0].clientY
+      : startY;
+    const dy = endY - exitFsStartY;
+    const dt = Date.now() - exitFsStartTime;
+    const velocity = dt > 0 ? dy / dt : 0;   // px/ms
+    exitFsCandidate = false;
+
+    // 条件：下移 > 80px 且 速度 > 0.3px/ms (300px/s)
+    if (dy > 80 && velocity > 0.3) {
+      if (typeof window.toggleFullscreen === 'function') {
+        window.toggleFullscreen();   // 内部会 exit + unlock 恢复竖屏
       }
       return;
     }
+    // 未达标也 return，避免误触发单击/双击
+    if (Math.abs(dy) > 10) return;
+  }
 
-    // 单击 / 双击防冲突逻辑
-    const now = Date.now();
-    if (now - lastTapTime < 300) {
+  // 1. 如果点击或触摸的目标在控制栏内部，直接返回
+  if (e.target && e.target.closest('.video-ctrl')) {
+    if (swiping) swiping = false;
+    window._swiping = false;
+    isRealMove = false;
+    return;
+  }
+
+  // 2. 结算滑动 Seek 动作
+  if (swiping) {
+    swiping = false;
+    window._swiping = false;
+    if (isRealMove && swipeTarget !== null) {
+      const video = getVideo();
+      if (video) video.currentTime = swipeTarget;
+    }
+    swipeTarget = null;
+  }
+
+  // 3. 若发生了位移滑动，放弃点击与双击判定
+  if (isRealMove) {
+    if (touchTimer) {
       clearTimeout(touchTimer);
       touchTimer = null;
-      lastTapTime = 0;
-      handleDoubleTap(e);
-    } else {
-      lastTapTime = now;
-      touchTimer = setTimeout(() => {
-        toggleControls();
-        touchTimer = null;
-      }, 300);
     }
+    return;
   }
+
+  // 4. 单击 / 双击防冲突逻辑
+  const now = Date.now();
+  if (now - lastTapTime < 300) {
+    clearTimeout(touchTimer);
+    touchTimer = null;
+    lastTapTime = 0;
+    handleDoubleTap(e);
+  } else {
+    lastTapTime = now;
+    touchTimer = setTimeout(() => {
+      toggleControls();
+      touchTimer = null;
+    }, 300);
+  }
+}
 
 
   /* ---------- 事件绑定 ---------- */
@@ -1604,15 +1676,50 @@ wrap.addEventListener('touchcancel', () => {
     rateBtn.textContent = rates[rateIdx] + 'x';
   };
 
-  /* ---------- 全屏 ---------- */
-  fsBtn.onclick = () => {
-    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-    if(fsEl){
-      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    } else {
-      (container.requestFullscreen || container.webkitRequestFullscreen).call(container);
+/* ---------- 全屏（进入锁横屏 / 退出恢复竖屏） ---------- */
+fsBtn.onclick = async () => {
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+
+  if(fsEl){
+    // ---------- 退出全屏 ----------
+    try {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) await document.webkitExitFullscreen();
+      else if (document.mozCancelFullScreen) await document.mozCancelFullScreen();
+      else if (document.msExitFullscreen) await document.msExitFullscreen();
+    } catch(e) {
+      console.warn('退出全屏失败:', e);
     }
-  };
+
+    // 恢复竖屏（部分浏览器支持，iOS Safari 不支持会自动忽略）
+    try {
+      if (screen.orientation && screen.orientation.unlock) {
+        screen.orientation.unlock();
+      }
+    } catch(e){}
+
+  } else {
+    // ---------- 进入全屏 ----------
+    try {
+      if (container.requestFullscreen) await container.requestFullscreen();
+      else if (container.webkitRequestFullscreen) await container.webkitRequestFullscreen();
+      else if (container.mozRequestFullScreen) await container.mozRequestFullScreen();
+      else if (container.msRequestFullscreen) await container.msRequestFullscreen();
+    } catch(e) {
+      console.warn('进入全屏失败:', e);
+      return;
+    }
+
+    // ★ 关键：必须等全屏成功之后再锁横屏
+    try {
+      if (screen.orientation && screen.orientation.lock) {
+        await screen.orientation.lock('landscape-primary');
+      }
+    } catch(e) {
+      console.warn('横屏锁定被拒绝:', e);
+    }
+  }
+};
 
 /* ---------- 点视频显示/隐藏控件（仅桌面端；移动端交给手势模块） ---------- */
 let lastTouchTs = 0;

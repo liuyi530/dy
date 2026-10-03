@@ -1277,20 +1277,21 @@ function destroyHls(){
     isRealMove = false;
     swiping = false;
 
-    // 仅在全屏且下半屏触发 Seek 滑动
-    if (isFullscreen()) {
-      const video = getVideo();
-      const container = document.getElementById('playerContainer');
-      if (video && video.duration && container) {
-        const rect = container.getBoundingClientRect();
-        if ((t.clientY - rect.top) >= rect.height * 0.5) {
-          swiping = true;
-          startCurrent = video.currentTime;
-          duration = video.duration;
-          swipeTarget = null;
-        }
-      }
+// 仅在全屏且下半屏触发 Seek 滑动
+if (isFullscreen()) {
+  const video = getVideo();
+  const container = document.getElementById('playerContainer');
+  if (video && video.duration && container) {
+    const rect = container.getBoundingClientRect();
+    if ((t.clientY - rect.top) >= rect.height * 0.5) {
+      swiping = true;
+      window._swiping = true;         // ← 新增
+      startCurrent = video.currentTime;
+      duration = video.duration;
+      swipeTarget = null;
     }
+  }
+}
   }
 
   function onMove(e){
@@ -1329,21 +1330,22 @@ function destroyHls(){
 
   function onEnd(e){
     // 1. 如果点击或触摸的目标在控制栏内部（包括进度条、播放按钮等），直接返回，不触发显隐切换
-    if (e.target && e.target.closest('.video-ctrl')) {
-      if (swiping) swiping = false;
-      isRealMove = false;
-      return;
-    }
+if (e.target && e.target.closest('.video-ctrl')) {
+  if (swiping) swiping = false;
+  window._swiping = false;              // ← 新增这一行
+  isRealMove = false;
+  return;
+}
 
-    // 结算滑动 Seek 动作
-    if (swiping) {
-      swiping = false;
-      if (isRealMove && swipeTarget !== null) {
-        const video = getVideo();
-        if (video) video.currentTime = swipeTarget;
-      }
-      swipeTarget = null;
-    }
+if (swiping) {
+  swiping = false;
+  window._swiping = false;              // ← 新增这一行
+  if (isRealMove && swipeTarget !== null) {
+    const video = getVideo();
+    if (video) video.currentTime = swipeTarget;
+  }
+  swipeTarget = null;
+}
 
     // 若发生了位移滑动，放弃点击与双击判定
     if (isRealMove) {
@@ -1430,16 +1432,17 @@ function setupVideoControls(){
   // 暴露给全屏滑动手势复用
   window._playerUI = { fill: playedEl, buffered: bufferedEl, dot, timeEl, video };
 
-  // 1. 播放进度更新 (绿色层)
-  function updatePlayedUI() {
-    if (typeof isDragging !== 'undefined' && isDragging) return; // 拖动时不覆盖
-    if (video.duration && isFinite(video.duration)) {
-      const pct = (video.currentTime / video.duration) * 100;
-      playedEl.style.width = pct + '%';
-      dot.style.left = pct + '%';
-      timeEl.textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
-    }
+// 1. 播放进度更新 (绿色层)
+function updatePlayedUI() {
+  if (window._swiping) return;                                 // ← 新增：全屏滑动时不覆盖
+  if (typeof isDragging !== 'undefined' && isDragging) return; // 拖动时不覆盖
+  if (video.duration && isFinite(video.duration)) {
+    const pct = (video.currentTime / video.duration) * 100;
+    playedEl.style.width = pct + '%';
+    dot.style.left = pct + '%';
+    timeEl.textContent = fmt(video.currentTime) + ' / ' + fmt(video.duration);
   }
+}
 
   // 2. 缓冲进度更新 (红色层)
   function updateBufferedUI() {
@@ -1463,21 +1466,17 @@ function setupVideoControls(){
     bufferedEl.style.width = pct + '%';
   }
 
-  // 绑定播放与缓冲事件
-  video.addEventListener('timeupdate', updatePlayedUI);
-  video.addEventListener('progress', updateBufferedUI);
-  video.addEventListener('seeking', updateBufferedUI);
-  video.addEventListener('seeked', updateBufferedUI);
+// 绑定播放与缓冲事件
+video.addEventListener('timeupdate', updatePlayedUI);
+video.addEventListener('progress', updateBufferedUI);
+video.addEventListener('seeking', updateBufferedUI);
+video.addEventListener('seeked', updateBufferedUI);
 
-  if (typeof hls !== 'undefined' && hls) {
-    hls.on(Hls.Events.FRAG_BUFFERED, updateBufferedUI);
-  }
-
-  function fmt(s){
-    if(!isFinite(s)) return '0:00';
-    const m = Math.floor(s / 60), ss = Math.floor(s % 60);
-    return m + ':' + (ss < 10 ? '0' : '') + ss;
-  }
+function fmt(s){
+  if(!isFinite(s)) return '0:00';
+  const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+  return m + ':' + (ss < 10 ? '0' : '') + ss;
+}
 
 
   /* ---------- 播放 / 暂停 ---------- */
@@ -1493,21 +1492,7 @@ function setupVideoControls(){
 // 假设您的全局/上下文中有控制滑动状态的变量：
 // swiping (是否正在屏幕滑动) 和 isDragging (是否正在拖拽进度条)
 
-function setupPlayerEvents(video, ui) {
-  video.addEventListener('timeupdate', () => {
-    if (!video.duration) return;
 
-    // ★ 关键修改：如果用户正在滑动调整进度或拖拽进度条，直接跳过 UI 刷新
-    // 避免 timeupdate 高频修改 DOM 与手指拖拽产生视觉“拉扯”和卡顿
-    if (typeof swiping !== 'undefined' && swiping) return;
-    if (typeof isDragging !== 'undefined' && isDragging) return;
-
-    const pct = (video.currentTime / video.duration) * 100;
-    if (ui.fill) ui.fill.style.width = pct + '%';
-    if (ui.dot) ui.dot.style.left = pct + '%';
-    if (ui.timeEl) ui.timeEl.textContent = `${fmt(video.currentTime)} / ${fmt(video.duration)}`;
-  });
-}
 
 
   function getPctFromX(clientX){
@@ -1534,11 +1519,10 @@ function setupPlayerEvents(video, ui) {
     return false;
   }
 
-  function doSeek(target){
-    // ① UI 先定到目标位置
-    const pct = video.duration ? target / video.duration : 0;
-    fill.style.width = pct * 100 + '%';
-    dot.style.left   = pct * 100 + '%';
+function doSeek(target){
+  const pct = video.duration ? target / video.duration : 0;
+  playedEl.style.width = pct * 100 + '%';   // ✅ 用 playedEl
+  dot.style.left       = pct * 100 + '%';
     if(video.duration && isFinite(video.duration)){
       timeEl.textContent = fmt(target) + ' / ' + fmt(video.duration);
     }
@@ -1593,11 +1577,10 @@ wrap.addEventListener('touchstart', e => {
   updateDragUI(e.touches[0].clientX);
 }, { passive: true });
 
-// ★ 新增：阻止 click 事件冒泡，防止点击进度条时触发视频容器的 toggleControls
+// 阻止 click 事件冒泡，防止点击进度条时触发视频容器的 toggleControls
 wrap.addEventListener('click', e => {
   e.stopPropagation();
 });
-
 
 wrap.addEventListener('touchmove', e => {
   if(!isDragging) return;
@@ -1611,20 +1594,6 @@ wrap.addEventListener('touchend', () => {
 wrap.addEventListener('touchcancel', () => {
   if(isDragging) commitDrag();
 });
-
-
-  wrap.addEventListener('touchmove', e => {
-    if(!isDragging) return;
-    updateDragUI(e.touches[0].clientX);
-    e.preventDefault();
-  }, { passive: false });
-
-  wrap.addEventListener('touchend', () => {
-    if(isDragging) commitDrag();
-  });
-  wrap.addEventListener('touchcancel', () => {
-    if(isDragging) commitDrag();
-  });
 
   /* ---------- 倍速 ---------- */
   const rates = [1, 1.25, 1.5, 2, 0.5, 0.75];
@@ -1645,11 +1614,22 @@ wrap.addEventListener('touchcancel', () => {
     }
   };
 
-  /* ---------- 点视频显示/隐藏控件 ---------- */
-  video.addEventListener('click', () => {
+/* ---------- 点视频显示/隐藏控件（仅桌面端；移动端交给手势模块） ---------- */
+let lastTouchTs = 0;
+
+container.addEventListener('touchstart', () => {
+  lastTouchTs = Date.now();
+}, { passive: true, capture: true });
+
+  container.addEventListener('click', (e) => {
+    // 控件区域内的点击不处理（比如点播放键/进度条）
+    if (e.target.closest('.video-ctrl')) return;
+    // 触摸设备上紧接着 touchend 会有一个合成 click，跳过它
+    if (Date.now() - lastTouchTs < 600) return;
     container.classList.toggle('ctrl-show');
   });
 }
+
 
 function startHlsPlayer(videoUrl){
   const container = $('#playerContainer');
@@ -1694,6 +1674,30 @@ function startHlsPlayer(videoUrl){
         }
       } catch(e){}
     }
+  });
+
+  /* ---------- ★ 新增：HLS 分片加载完成 → 更新缓冲条 ---------- */
+  hlsInstance.on(Hls.Events.FRAG_BUFFERED, function(){
+    const v = document.getElementById('playerVideo');
+    const bufferedEl = document.getElementById('progressBuffered');
+    if(!v || !bufferedEl) return;
+    if(!v.duration || !isFinite(v.duration)) return;
+    if(!v.buffered || !v.buffered.length) return;
+
+    const currentTime = v.currentTime;
+    let bufferedEnd = 0;
+
+    for(let i = 0; i < v.buffered.length; i++){
+      if(v.buffered.start(i) <= currentTime && currentTime <= v.buffered.end(i)){
+        bufferedEnd = v.buffered.end(i);
+        break;
+      }
+    }
+    if(bufferedEnd === 0 && v.buffered.length > 0){
+      bufferedEnd = v.buffered.end(v.buffered.length - 1);
+    }
+
+    bufferedEl.style.width = (bufferedEnd / v.duration * 100) + '%';
   });
 
   let triedDirect = false;
@@ -2362,49 +2366,50 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
         if (prevBtn) prevBtn.disabled = (epIndex <= 0);
         if (nextBtn) nextBtn.disabled = (epIndex >= total - 1);
     };
-    
-    
+
     // ★★★ 小蜜蜂：调 /api/play-url 拿真实 m3u8，用自己播放器 ★★★
-if (currentSource === 'xiaomifeng') {
-    const cur = window._currentPlayList[epIndex];
-    if(!cur || !cur.vodId){
-        toast('缺少播放参数');
-        return;
-    }
-    if (playerBox) playerBox.style.display = 'block';
-    if (paddr) {
-        paddr.className = 'paddr probing';
-        paddr.textContent = '正在获取播放地址…';
-    }
-    try {
-        const apiUrl = 'https://www.xmfyy.com/api/play-url'
-            + '?vodId=' + cur.vodId
-            + '&playFrom=' + cur.playFrom
-            + '&index=' + cur.index;
-        const json = await requestUrl(apiUrl);
-        const data = JSON.parse(json);
-        if(!data || !data.url){
-            if(paddr){ paddr.className='paddr fail'; paddr.textContent='接口未返回播放地址'; }
-            toast('接口未返回播放地址');
+    if (currentSource === 'xiaomifeng') {
+        const cur = window._currentPlayList[epIndex];
+        if(!cur || !cur.vodId){
+            toast('缺少播放参数');
+            updateEpBtns();                 // ← 新增
             return;
         }
+        if (playerBox) playerBox.style.display = 'block';
         if (paddr) {
-            paddr.className = 'paddr ok';
-            paddr.textContent = data.url;
+            paddr.className = 'paddr probing';
+            paddr.textContent = '正在获取播放地址…';
         }
-        startHlsPlayer(data.url);
-        $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
-    } catch(e) {
-        console.error(e);
-        toast('获取播放地址失败：' + e.message);
+        try {
+            const apiUrl = 'https://www.xmfyy.com/api/play-url'
+                + '?vodId=' + cur.vodId
+                + '&playFrom=' + cur.playFrom
+                + '&index=' + cur.index;
+            const json = await requestUrl(apiUrl);
+            const data = JSON.parse(json);
+            if(!data || !data.url){
+                if(paddr){ paddr.className='paddr fail'; paddr.textContent='接口未返回播放地址'; }
+                toast('接口未返回播放地址');
+                updateEpBtns();             // ← 新增
+                return;
+            }
+            if (paddr) {
+                paddr.className = 'paddr ok';
+                paddr.textContent = data.url;
+            }
+            startHlsPlayer(data.url);
+            $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+        } catch(e) {
+            console.error(e);
+            toast('获取播放地址失败：' + e.message);
+        }
+        updateEpBtns();                     // ← 新增
+        return;
     }
-    return;
-}
-// ★★★ 小蜜蜂分支结束 ★★★
-    
-    
+    // ★★★ 小蜜蜂分支结束 ★★★
+
     updateEpBtns();
-    
+
     if (MEDIA_RE.test(rawUrl)) {
         if (playerBox) playerBox.style.display = 'block';
         if (paddr) {
@@ -2526,6 +2531,11 @@ async function probePlayUrl(playPageUrl){
   const playBtns = $('#playBtns');
   if(!paddr || !playBtns) return;
 
+  // 每次进来先把状态重置
+  paddr.className = 'paddr probing';
+  paddr.textContent = '正在探测真实播放地址…';
+  playBtns.style.display = 'none';
+
   let finalUrl = playPageUrl;
   let detected = false;
 
@@ -2539,35 +2549,54 @@ async function probePlayUrl(playPageUrl){
 
   if(!detailOpen) return;
 
-  if(detected){
-    paddr.className = 'paddr ok';
-    paddr.textContent = "";
-    toast('已探测到播放地址');
-  }else{
-    paddr.className = 'paddr fail';
-    paddr.textContent = '未探测到播放地址';
-}
-
-  playBtns.style.display = 'flex';
-
   const copyBtn = playBtns.querySelector('.btn-play-copy');
   const openBtn = playBtns.querySelector('.btn-play-open');
 
-  if(copyBtn){
-    copyBtn.onclick = async function(){
-      const ok = await copyText(finalUrl);
-      if(ok){ copyFeedback(copyBtn, '已复制 ✓'); toast('播放地址已复制'); }
-      else toast('复制失败');
-    };
-  }
+  if(detected){
+    /* ---------- 探测成功 ---------- */
+    paddr.className = 'paddr ok';
+    paddr.textContent = '';
+    toast('已探测到播放地址');
 
-  if(openBtn){
-    openBtn.onclick = function(){
-      $('#playerBox').style.display = 'block';
-      $('#paddr').textContent = finalUrl;
-      startHlsPlayer(finalUrl);
-      $('#dBody').scrollTo({ top:0, behavior:'smooth' });
-    };
+    if(copyBtn){
+      copyBtn.textContent = '复制链接';
+      copyBtn.onclick = async function(){
+        const ok = await copyText(finalUrl);
+        if(ok){ copyFeedback(copyBtn, '已复制 ✓'); toast('播放地址已复制'); }
+        else toast('复制失败');
+      };
+    }
+    if(openBtn){
+      openBtn.textContent = '点击播放';
+      openBtn.onclick = function(){
+        $('#playerBox').style.display = 'block';
+        $('#paddr').textContent = finalUrl;
+        startHlsPlayer(finalUrl);
+        $('#dBody').scrollTo({ top:0, behavior:'smooth' });
+      };
+    }
+    playBtns.style.display = 'flex';
+
+  } else {
+    /* ---------- 探测失败：保留重试入口 ---------- */
+    paddr.className = 'paddr fail';
+    paddr.textContent = '未探测到播放地址，可点击下方按钮重试';
+
+    if(copyBtn){
+      copyBtn.textContent = '复制页面链接';
+      copyBtn.onclick = async function(){
+        const ok = await copyText(playPageUrl);
+        if(ok){ copyFeedback(copyBtn, '已复制 ✓'); toast('播放页链接已复制'); }
+        else toast('复制失败');
+      };
+    }
+    if(openBtn){
+      openBtn.textContent = '重新探测';
+      openBtn.onclick = function(){
+        probePlayUrl(playPageUrl);   // ← 递归再探一次
+      };
+    }
+    playBtns.style.display = 'flex';
   }
 }
 
@@ -2583,13 +2612,6 @@ function switchSource(src){
   window.__srcSwiperSet(src);
 }
 
-
-
-  if(src === 'jiexi'){
-    $('#srcName').textContent = '视频解析';
-  } else {
-    $('#srcName').textContent = SOURCES[src].name;
-  }
 
   pageState.prevUrl = '';
   pageState.nextUrl = '';

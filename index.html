@@ -1177,6 +1177,17 @@ function extractM3U8FromIframeUrl(iframeUrl){
   return /^https?:\/\//i.test(decoded) && MEDIA_RE.test(decoded) ? decoded : '';
 }
 
+
+/* ---------- 禁用视频元素的长按系统菜单（复制视频帧 / 画中画等） ---------- */
+document.addEventListener('contextmenu', function(e){
+  if(e.target && e.target.tagName === 'VIDEO'){
+    e.preventDefault();
+    return false;
+  }
+}, true);
+
+
+
 function destroyHls(){
   const video = document.getElementById('playerVideo');
   if(video){
@@ -2607,7 +2618,7 @@ if(currentSource === 'flixflop'){
           <div class="ptitle">▶ 在线播放器 <span id="nowPlayingLabel" style="color:var(--sub);font-weight:400;font-size:12px;"></span></div>
           <div class="paddr ok" id="paddr">已载入播放节点</div>
           <div class="player-container" id="playerContainer">
-            <video id="playerVideo" playsinline webkit-playsinline></video>
+            <video id="playerVideo" playsinline webkit-playsinline controlsList="nodownload nofullscreen noremoteplayback" disablePictureInPicture oncontextmenu="return false"></video>
             <iframe id="playerIframe" allowfullscreen allow="autoplay; encrypted-media; fullscreen" scrolling="no" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" style="display:none;width:100%;height:100%;border:none;"></iframe>
           </div>
           <div class="ep-controls">

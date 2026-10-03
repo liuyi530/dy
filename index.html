@@ -1278,6 +1278,7 @@ function startHideTimer(){
   let startX = 0, startY = 0;
   let isRealMove = false;
   let swiping = false;
+  let swipeActivated = false;   // ★ 本次触摸是否已激活控制栏显示
   let startCurrent = 0, duration = 0;
   let swipeTarget = null;
 
@@ -1299,16 +1300,14 @@ if (isFullscreen()) {
   const container = document.getElementById('playerContainer');
   if (video && video.duration && container) {
     const rect = container.getBoundingClientRect();
-    if ((t.clientY - rect.top) >= rect.height * 0.5) {
-      swiping = true;
-      window._swiping = true;         // ← 新增
-      startCurrent = video.currentTime;
-      duration = video.duration;
-      swipeTarget = null;
-      // ★ 新增：显示控制栏 + 取消隐藏倒计时
-container.classList.add('ctrl-show');
-cancelHideTimer();
-    }
+if ((t.clientY - rect.top) >= rect.height * 0.5) {
+  swiping = true;
+  window._swiping = true;
+  startCurrent = video.currentTime;
+  duration = video.duration;
+  swipeTarget = null;
+  swipeActivated = false;   // ★ 首次按下还没激活（等真正移动才显示控制栏）
+}
   }
 }
   }
@@ -1331,6 +1330,14 @@ cancelHideTimer();
       if (target > duration) target = duration;
 
       swipeTarget = target;
+
+// ★ 新增：真正滑动时才激活控制栏显示 + 取消隐藏倒计时
+if (!swipeActivated) {
+  swipeActivated = true;
+  const c = document.getElementById('playerContainer');
+  if (c) c.classList.add('ctrl-show');
+  cancelHideTimer();
+}
 
       const ui = getUI();
       if(ui && ui.fill && ui.dot && ui.timeEl){
@@ -1365,8 +1372,11 @@ if (swiping) {
   }
   swipeTarget = null;
 
-  // ★ 新增：松手后启动 2 秒倒计时隐藏控制栏
-  startHideTimer();
+  // ★ 只有真正滑动过才启动 2 秒倒计时；单纯点击不启动
+  if (swipeActivated) {
+    swipeActivated = false;
+    startHideTimer();
+  }
 }
 
     // 若发生了位移滑动，放弃点击与双击判定

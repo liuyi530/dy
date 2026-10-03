@@ -1215,96 +1215,110 @@ function destroyHls(){
     lastTapY = t.clientY;
   }
 
-  /* ---------- 全屏底部滑动进度 ---------- */
-  let swiping = false;
-  let startX = 0, startCurrent = 0, duration = 0;
+/* ---------- 全屏底部滑动进度（拖动中只更新 UI，松手才 seek） ---------- */
+let swiping = false;
+let startX = 0, startCurrent = 0, duration = 0;
+let swipeTarget = null;
 
-  function getFsTarget(){
-    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-    return fsEl || document.getElementById('playerContainer');
-  }
+function getFsTarget(){
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  return fsEl || document.getElementById('playerContainer');
+}
 
-  function onStart(e){
-    if(!isFullscreen()) return;
+function onStart(e){
+  if(!isFullscreen()) return;
+  const video = getVideo();
+  if(!video || !video.duration) return;
+  const t = e.touches[0];
+  const h = window.innerHeight;
+  if(t.clientY < h * (1 - BOTTOM_RATIO)) return;
+  swiping = true;
+  startX = t.clientX;
+  startCurrent = video.currentTime;
+  duration = video.duration;
+  swipeTarget = startCurrent;
+}
+
+function onMove(e){
+  if(!swiping) return;
+  const video = getVideo();
+  if(!video) return;
+  const t = e.touches[0];
+  const dx = t.clientX - startX;
+  const w = window.innerWidth;
+  const deltaSec = (dx / w) * duration * 0.5;
+  let target = startCurrent + deltaSec;
+  if(target < 0) target = 0;
+  if(target > duration) target = duration;
+
+  // ★ 只更新提示，不动 video.currentTime
+  swipeTarget = target;
+  showSeekHint(target, duration);
+
+  e.preventDefault();
+}
+
+function onEnd(){
+  if(!swiping) return;
+  swiping = false;
+  hideSeekHint();
+  if(swipeTarget != null){
     const video = getVideo();
-    if(!video || !video.duration) return;
-    const t = e.touches[0];
-    const h = window.innerHeight;
-    if(t.clientY < h * (1 - BOTTOM_RATIO)) return;
-    swiping = true;
-    startX = t.clientX;
-    startCurrent = video.currentTime;
-    duration = video.duration;
-  }
-
-  function onMove(e){
-    if(!swiping) return;
-    const video = getVideo();
-    if(!video) return;
-    const t = e.touches[0];
-    const dx = t.clientX - startX;
-    const w = window.innerWidth;
-    const deltaSec = (dx / w) * duration * 0.5;
-    let target = startCurrent + deltaSec;
-    if(target < 0) target = 0;
-    if(target > duration) target = duration;
-    video.currentTime = target;
-    showSeekHint(target, duration);
-    e.preventDefault();
-  }
-
-  function onEnd(){
-    if(!swiping) return;
-    swiping = false;
-    hideSeekHint();
-  }
-
-  function showSeekHint(cur, dur){
-    let el = document.getElementById('seekHint');
-    if(!el){
-      el = document.createElement('div');
-      el.id = 'seekHint';
-      el.style.cssText =
-        'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);' +
-        'background:rgba(0,0,0,.78);color:#fff;padding:14px 26px;' +
-        'border-radius:14px;font-size:16px;font-weight:700;' +
-        'z-index:999999;pointer-events:none;backdrop-filter:blur(6px);';
-      document.body.appendChild(el);
+    if(video && video.duration){
+      // ★ 松手才真正 seek，一次性跳，让 HLS 缓冲
+      video.currentTime = swipeTarget;
     }
-    el.textContent = fmt(cur) + ' / ' + fmt(dur);
-    el.style.opacity = '1';
+    swipeTarget = null;
   }
-  function hideSeekHint(){
-    const el = document.getElementById('seekHint');
-    if(el) el.style.opacity = '0';
+}
+
+function showSeekHint(cur, dur){
+  let el = document.getElementById('seekHint');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'seekHint';
+    el.style.cssText =
+      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);' +
+      'background:rgba(0,0,0,.78);color:#fff;padding:14px 26px;' +
+      'border-radius:14px;font-size:16px;font-weight:700;' +
+      'z-index:999999;pointer-events:none;backdrop-filter:blur(6px);' +
+      'transition:opacity .15s;';
+    document.body.appendChild(el);
   }
+  el.textContent = fmt(cur) + ' / ' + fmt(dur);
+  el.style.opacity = '1';
+}
+function hideSeekHint(){
+  const el = document.getElementById('seekHint');
+  if(el) el.style.opacity = '0';
+}
 
-  /* ---------- 绑定 ---------- */
-  function bind(){
-    /* 双击：容器 + 全屏元素 */
-    const dblTargets = [document.getElementById('playerContainer')];
-    const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
-    if(fsEl && fsEl.tagName !== 'VIDEO') dblTargets.push(fsEl);
+function bind(){
+  /* 双击：容器 + 全屏元素 */
+  const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+  const dblTargets = [document.getElementById('playerContainer')];
+  if(fsEl && fsEl.tagName !== 'VIDEO') dblTargets.push(fsEl);
 
-    dblTargets.forEach(c => {
-      if(!c || c.__dblBound) return;
-      c.__dblBound = true;
-      c.addEventListener('touchend', handleTouchEnd, { passive: true });
-    });
+  dblTargets.forEach(c => {
+    if(!c || c.__dblBound) return;
+    c.__dblBound = true;
+    c.addEventListener('touchend', handleTouchEnd, { passive: true });
+  });
 
-    /* 底部滑动：容器 + 全屏元素 */
-    const swipeTargets = [document.getElementById('playerContainer')];
-    if(fsEl && fsEl.tagName !== 'VIDEO') swipeTargets.push(fsEl);
+  /* 底部滑动：容器 + 全屏元素（每次都重新检查全屏元素） */
+  const swipeTargets = [document.getElementById('playerContainer')];
+  const fsEl2 = document.fullscreenElement || document.webkitFullscreenElement;
+  if(fsEl2 && fsEl2.tagName !== 'VIDEO') swipeTargets.push(fsEl2);
 
-    swipeTargets.forEach(t => {
-      if(!t || t.__swipeBound) return;
-      t.__swipeBound = true;
-      t.addEventListener('touchstart',  onStart, { passive: true });
-      t.addEventListener('touchmove',   onMove,  { passive: false });
-      t.addEventListener('touchend',    onEnd);
-      t.addEventListener('touchcancel', onEnd);
-    });
-  }
+  swipeTargets.forEach(t => {
+    if(!t || t.__swipeBound) return;
+    t.__swipeBound = true;
+    t.addEventListener('touchstart',  onStart, { passive: true });
+    t.addEventListener('touchmove',   onMove,  { passive: false });
+    t.addEventListener('touchend',    onEnd);
+    t.addEventListener('touchcancel', onEnd);
+  });
+}
 
   setInterval(bind, 600);
   document.addEventListener('fullscreenchange', () => setTimeout(bind, 100));

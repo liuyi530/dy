@@ -452,133 +452,7 @@ feikuai: {
   }
 },
 
-  /* ------------------------ 非凡资源 ------------------------ */
-  ffzy: {
-    name: '非凡资源',
-    base: 'https://www.ffzy3.tv',
 
-    getSearchUrl: function(kw){
-      return this.base + '/index.php/vod/search.html';
-    },
-    getSearchUrlGet: function(kw){
-      return this.base + '/index.php/vod/search.html?wd=' + encodeURIComponent(kw);
-    },
-    getSearchOptions: function(kw){
-      const body = encodeForm({ wd: kw });
-      return {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body
-      };
-    },
-
-    parseList: function(html){
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const list = [];
-
-      let items = doc.querySelectorAll('ul.videoContent > li');
-      if(items.length === 0) items = doc.querySelectorAll('a.videoName');
-
-      items.forEach(node => {
-        let a = null;
-        let scope = node;
-        if(node.tagName === 'A'){
-          a = node;
-          scope = node.closest('li') || node;
-        }else{
-          a = node.querySelector('a.videoName') || node.querySelector('a.address');
-        }
-        if(!a) return;
-
-        const href = a.getAttribute('href');
-        if(!href) return;
-
-        const clone = a.cloneNode(true);
-        const statusEl = clone.querySelector('i');
-        const status = statusEl ? statusEl.textContent.trim() : '';
-        if(statusEl) statusEl.remove();
-        const name = clone.textContent.trim() || '未知片名';
-
-        const regionEl = scope.querySelector('.region');
-        const typeEl   = scope.querySelector('.category') || scope.querySelector('.type');
-        const timeEl   = scope.querySelector('.time1')    || scope.querySelector('.time');
-
-        list.push({
-          name,
-          year:   timeEl   ? timeEl.textContent.trim()   : '',
-          rank:   typeEl   ? typeEl.textContent.trim()   : '',
-          region: regionEl ? regionEl.textContent.trim() : '',
-          status,
-          cover: '',
-          href:  abs(href, this.base)
-        });
-      });
-
-      let prevUrl = '', nextUrl = '';
-      let hasPrev = false, hasMore = false;
-      let currentPage = 1, totalPages = 1, totalCount = list.length;
-
-      const pageBox = doc.querySelector('.pages') || doc.querySelector('.page') || doc.querySelector('.kscont');
-      if(pageBox){
-        const links = parseAnchorPageInfo(pageBox, this.base);
-        if(links.prevUrl){ prevUrl = links.prevUrl; hasPrev = true; }
-        if(links.nextUrl){ nextUrl = links.nextUrl; hasMore = true; }
-
-        const statSpan = pageBox.querySelector('span.disabled') || pageBox;
-        const text = statSpan ? (statSpan.textContent || '') : '';
-        const m = text.match(/共\s*(\d+)\s*条数据.*?当前\s*(\d+)\s*\/\s*(\d+)\s*页/);
-        if(m){
-          totalCount  = parseInt(m[1], 10) || list.length;
-          currentPage = parseInt(m[2], 10) || 1;
-          totalPages  = parseInt(m[3], 10) || 1;
-        }else{
-          const activeSpan = pageBox.querySelector('span.active');
-          if(activeSpan){
-            const num = parseInt(activeSpan.textContent, 10);
-            if(!isNaN(num)) currentPage = num;
-          }
-        }
-      }
-
-      if(currentPage <= 1){ hasPrev = false; prevUrl = ''; }
-      if(currentPage >= totalPages){ hasMore = false; nextUrl = ''; }
-
-      return { list, prevUrl, nextUrl, hasPrev, hasMore, currentPage, totalPages, totalCount };
-    },
-
-    parseDetail: function(html){
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-
-      let cover = abs(pickAttr(doc, '.left img, .vodImg img', 'src'), this.base);
-
-      const playList = [];
-      const seen = new Set();
-
-      doc.querySelectorAll('input[name*="copy_ffm3u8"]').forEach(ipt => {
-        const val = (ipt.value || '').trim();
-        if(!val.includes('$')) return;
-        const idx = val.indexOf('$');
-        const quality = val.slice(0, idx).trim() || '正片';
-        const url     = val.slice(idx + 1).trim();
-        if(!url || seen.has(url)) return;
-        seen.add(url);
-        playList.push({ title: quality, url });
-      });
-
-      if(playList.length === 0){
-        const text = doc.body ? (doc.body.innerText || doc.body.textContent || '') : '';
-        for(const m of text.matchAll(/([^\n\$]+?)\$((?:https?:\/\/)[^\s\$\n]+?\.m3u8[^\s\$\n]*)/gi)){
-          const quality = m[1].trim();
-          const url = m[2].trim();
-          if(seen.has(url)) continue;
-          seen.add(url);
-          playList.push({ title: quality, url });
-        }
-      }
-
-      return { cover, magnets: [], playPageUrl: '', playList };
-    }
-  },
 
 
 /* ------------------------ 爱看机器人 ------------------------ */
@@ -1118,54 +992,7 @@ function pickAttr(scope, selectors, attrs){
   return '';
 }
 
-/* 拿"上一页 / 下一页"两个链接（从 a[title]） */
-function parseAnchorPageInfo(scope, base){
-  let prevUrl = '', nextUrl = '';
-  const prevA = scope.querySelector('a[title="上一页"]');
-  if(prevA){
-    const h = prevA.getAttribute('href') || '';
-    if(h && !h.includes('javascript:') && h !== '#') prevUrl = abs(h, base);
-  }
-  const nextA = scope.querySelector('a[title="下一页"]');
-  if(nextA){
-    const h = nextA.getAttribute('href') || '';
-    if(h && !h.includes('javascript:') && h !== '#') nextUrl = abs(h, base);
-  }
-  return { prevUrl, nextUrl };
-}
 
-/* 拿"tab + box"结构的线路/集数（奈飞详情页用） */
-function parseTabBoxPlayList(doc, base){
-  const tabs  = doc.querySelectorAll('.vod-playerUrl');
-  const boxes = doc.querySelectorAll('.anthology-list-box');
-  const playList = [];
-  const seen = new Set();
-  const total = Math.max(tabs.length, boxes.length);
-
-  for(let i = 0; i < total; i++){
-    let lineName = '';
-    if(tabs[i]){
-      const clone = tabs[i].cloneNode(true);
-      clone.querySelectorAll('.badge, i').forEach(el => el.remove());
-      lineName = (clone.textContent || '').replace(/\s+/g, ' ').trim();
-    }
-    if(!lineName) lineName = '线路' + (i + 1);
-
-    const box = boxes[i];
-    if(!box) continue;
-
-    box.querySelectorAll('a[href*="/vodplay/"]').forEach(a => {
-      const href = a.getAttribute('href') || '';
-      if(!href || seen.has(href)) return;
-      seen.add(href);
-      const sp = a.querySelector('span');
-      let epName = sp ? sp.textContent.trim() : (a.textContent || '').trim();
-      if(!epName) epName = '正片';
-      playList.push({ lineName, epName, url: abs(href, base) });
-    });
-  }
-  return playList;
-}
 /* ---------- ★ B 方案小工具结束 ---------- */
 
 function fetchWithTimeout(url, options, timeout){
@@ -3308,7 +3135,6 @@ function switchSource(src){
     { src:'xiaomifeng', name:'小蜜蜂' },
     { src:'feikuai',    name:'飞快TV' },
     { src:'juhe',       name:'聚合源' },
-    { src:'ffzy',       name:'非凡资源' },
     { src:'flixflop',   name:'飞流视频' },
     { src:'ikanbot',    name:'爱看机器人' },
   ];

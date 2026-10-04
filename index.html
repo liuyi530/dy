@@ -2505,16 +2505,33 @@ if(mySource === 'juhe'){
   const resultsArr = await Promise.all(tasks);
   if(myToken !== searchToken || mySource !== currentSource) return;
 
-  // 扁平化 + 去重（同名同年只留一个）
-  const all = resultsArr.flat();
-  const seen = new Set();
-  const merged = [];
-  all.forEach(it => {
-    const key = (it.name || '') + '|' + (it.year || '');
-    if(seen.has(key)) return;
-    seen.add(key);
-    merged.push(it);
-  });
+// ★ 合并同名：只按"名字完全相同"合并，多源塞进 _variants
+const all = resultsArr.flat();
+const map = new Map();
+all.forEach(it => {
+  const nameKey = (it.name || '').trim();
+  if(!nameKey) return;
+  if(!map.has(nameKey)){
+    // 第一次遇到：创建卡片，_variants 保存多源
+    map.set(nameKey, {
+      name: it.name,
+      year: it.year,
+      rank: it.rank,
+      region: it.region,
+      status: it.status,
+      cover: it.cover,
+      _variants: [ it ]
+    });
+  } else {
+    // 已有同名：追加源
+    const existing = map.get(nameKey);
+    existing._variants.push(it);
+    // 补封面 / 年份（第一个没值就用后面的）
+    if(!existing.cover && it.cover) existing.cover = it.cover;
+    if(!existing.year && it.year)   existing.year  = it.year;
+  }
+});
+const merged = Array.from(map.values());
 
   // 写入分页状态
   pageState.prevUrl     = '';
@@ -2699,30 +2716,58 @@ if(currentSource === 'flixflop'){
     playList
   };
 }
-// ★★★ 新增：聚合源分支（用 _subSource 精确定位子源）★★★
+// ★★★ 聚合源分支：遍历 _variants，拉取所有源的详情，合并线路 ★★★
 else if(currentSource === 'juhe'){
-  const vodId = item._appleCMSVodId;
-  const subName = item._subSource;   // '火狐' / '百度' / '虎牙'
-  const sub = SOURCES.juhe._apis.find(s => s.name === subName);
+  const variants = item._variants || [];
 
-  if(!vodId || !sub){
+  if(!variants.length){
     detailData = { cover: item.cover || '', magnets: [], playPageUrl: '', playList: [] };
   } else {
-    try {
-      const sep = sub.api.includes('?') ? '&' : '?';
-      const detailUrl = sub.api + sep + 'ac=videolist&ids=' + encodeURIComponent(vodId);
-      const txt = await fetchViaRelay(detailUrl, { method: 'GET' });
-      if(!detailOpen) return;
-      const parsed = parseAppleCMSDetail(txt);
-      parsed.cover = parsed.cover || item.cover || '';
-      detailData = parsed;
-    } catch(e){
-      console.warn('[' + sub.name + '] 详情失败：', e.message);
-      detailData = { cover: item.cover || '', magnets: [], playPageUrl: '', playList: [] };
+    const allPlayList = [];
+    let cover = item.cover || '';
+
+    // 逐个源拉详情
+    for(const variant of variants){
+      const vodId = variant._appleCMSVodId;
+      const subName = variant._subSource;
+      const sub = SOURCES.juhe._apis.find(s => s.name === subName);
+
+      if(!vodId || !sub) continue;
+
+      try {
+        const sep = sub.api.includes('?') ? '&' : '?';
+        const detailUrl = sub.api + sep + 'ac=videolist&ids=' + encodeURIComponent(vodId);
+        const txt = await fetchViaRelay(detailUrl, { method: 'GET' });
+        if(!detailOpen) return;
+
+        const parsed = parseAppleCMSDetail(txt);
+
+        // ★ 线路名前加源名，避免重名混淆：'[火狐] hhm3u8'
+        (parsed.playList || []).forEach(ep => {
+          allPlayList.push({
+            lineName: '[' + subName + '] ' + (ep.lineName || '线路'),
+            epName: ep.epName || '正片',
+            url: ep.url
+          });
+        });
+
+        // 补封面
+        if(!cover && parsed.cover) cover = parsed.cover;
+      } catch(e){
+        console.warn('[' + subName + '] 详情失败：', e.message);
+      }
     }
+
+    detailData = {
+      cover: cover,
+      magnets: [],
+      playPageUrl: '',
+      playList: allPlayList
+    };
   }
 }
 /* ★★★ 聚合源分支结束 ★★★ */
+
 else {
 
 

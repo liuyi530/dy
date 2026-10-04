@@ -930,12 +930,13 @@ juhe: {
   name: '聚合源',
   _isAppleCMS: true,
 
-  /* 内部子源列表 */
-  _apis: [
-    { name: '火狐', api: 'https://hhzyapi.com/api.php/provide/vod/' },
-    { name: '百度', api: 'https://api.apibdzy.com/api.php/provide/vod/' },
-    { name: '虎牙', api: 'https://www.huyaapi.com/api.php/provide/vod/from/hym3u8' }
-  ],
+/* 内部子源列表 */
+_apis: [
+  { name: '火狐', api: 'https://hhzyapi.com/api.php/provide/vod/' },
+  { name: '百度', api: 'https://api.apibdzy.com/api.php/provide/vod/' },
+  { name: '虎牙', api: 'https://www.huyaapi.com/api.php/provide/vod/from/hym3u8' },
+  { name: '极速', api: 'https://jszyapi.com/api.php/provide/vod/' }
+],
 
   /* 搜索 URL（占位，实际在 doSearch 里特判） */
   getSearchUrl: function(kw){ return this._apis[0].api; },

@@ -33,7 +33,7 @@ body{
   -webkit-backdrop-filter:blur(14px);
   background:rgba(14,17,22,.82);
   border-bottom:1px solid var(--line);
-  padding:0 0 10px;
+  padding:0 0 3px;
   animation:fadeDown .5s ease;
 }
 
@@ -418,7 +418,7 @@ body{
 /* 片源横滑选择器 */
 .src-swiper{
   position:relative; width:100%; height:44px;
-  overflow:hidden; margin-bottom:10px; touch-action:pan-x;
+  overflow:hidden; margin-bottom:4px; touch-action:pan-x;
 }
 .src-rail{
   position:absolute; left:0; right:0; bottom:0; height:42px;
@@ -550,7 +550,7 @@ body{
 
 .searchrow {
   display: flex; gap: 12px; align-items: center;
-  padding: 6px 8px 6px 5px;
+  padding: 2px 8px 2px 5px;
 }
 .searchrow input {
   flex: 1; min-width: 0; height: 48px;

@@ -921,8 +921,144 @@ _parseListFromJson: function(obj){
       });
       return playList;
     }
-  }
+  },
+  
+  /* ============================================================
+   聚合源：火狐 + 百度 + 虎牙（苹果CMS type:1）
+   ============================================================ */
+juhe: {
+  name: '聚合源',
+  _isAppleCMS: true,
+
+  /* 内部子源列表 */
+  _apis: [
+    { name: '火狐', api: 'https://hhzyapi.com/api.php/provide/vod/' },
+    { name: '百度', api: 'https://api.apibdzy.com/api.php/provide/vod/' },
+    { name: '虎牙', api: 'https://www.huyaapi.com/api.php/provide/vod/from/hym3u8' }
+  ],
+
+  /* 搜索 URL（占位，实际在 doSearch 里特判） */
+  getSearchUrl: function(kw){ return this._apis[0].api; },
+  getSearchUrlGet: function(kw){ return this._apis[0].api; },
+  getSearchOptions: function(kw){
+    return {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: encodeForm({ ac: 'videolist', wd: kw })
+    };
+  },
+
+  /* 这两个由 doSearch 特判处理，这里留空壳 */
+  parseList: function(text){ return parseAppleCMSList(text, this); },
+  parseDetail: function(text){ return parseAppleCMSDetail(text); }
+},
+  
 };
+
+
+
+/* ============================================================
+   苹果CMS 通用解析器（type:1 标准接口）
+   ============================================================ */
+
+/**
+ * 解析苹果CMS 搜索结果（JSON）
+ * 返回结构：{ list, prevUrl, nextUrl, hasPrev, hasMore, currentPage, totalPages, totalCount }
+ */
+function parseAppleCMSList(text, src){
+  let data;
+  try{ data = JSON.parse(text); }
+  catch(e){
+    console.warn('[' + src.name + '] 返回不是 JSON：', String(text).slice(0, 200));
+    return { list:[], prevUrl:'', nextUrl:'', hasPrev:false, hasMore:false,
+             currentPage:1, totalPages:1, totalCount:0 };
+  }
+
+  const arr = Array.isArray(data.list) ? data.list : [];
+  const base = src.base || '';
+
+  const list = arr.map(item => {
+    const vodId = String(item.vod_id || '');
+    return {
+      name:   item.vod_name   || '',
+      year:   String(item.vod_year || ''),
+      rank:   item.vod_remarks || item.vod_state || '',
+      region: item.vod_area    || '',
+      status: item.vod_remarks || '',
+      cover:  abs(item.vod_pic || '', base),
+      // ★ 详情页要用 vod_id 拼 URL
+      _appleCMSVodId: vodId,
+      href: base + '?ac=videolist&ids=' + encodeURIComponent(vodId)
+    };
+  });
+
+  return {
+    list,
+    prevUrl: '',
+    nextUrl: '',
+    hasPrev: false,
+    hasMore: false,
+    currentPage: 1,
+    totalPages: 1,
+    totalCount: list.length
+  };
+}
+
+/**
+ * 解析苹果CMS 详情（JSON）
+ * 返回结构：{ cover, magnets:[], playPageUrl:'', playList:[{lineName, epName, url}] }
+ */
+function parseAppleCMSDetail(text){
+  let data;
+  try{ data = JSON.parse(text); }
+  catch(e){
+    console.warn('详情解析失败（不是 JSON）：', String(text).slice(0, 200));
+    return { cover:'', magnets:[], playPageUrl:'', playList:[] };
+  }
+
+  const arr = Array.isArray(data.list) ? data.list : [];
+  const vod = arr[0] || {};
+
+  const playList = [];
+  const seen = new Set();
+
+  const froms = String(vod.vod_play_from || '').split('$$$').map(s => s.trim());
+  const urls  = String(vod.vod_play_url  || '').split('$$$');
+
+  // ★ 屏蔽自家云播（hhyun 等，播放页不是直链）
+  const BLOCKED = ['hhyun', 'yun', 'yunbo', 'cloud', 'hlsyun'];
+  const isBlocked = (name) => {
+    if(!name) return false;
+    const n = name.toLowerCase();
+    return BLOCKED.some(b => n === b || n.indexOf(b) >= 0);
+  };
+
+  froms.forEach((lineName, i) => {
+    if(isBlocked(lineName)) return;
+    const rawEps = String(urls[i] || '').split('#').filter(Boolean);
+    rawEps.forEach(raw => {
+      const idx = raw.indexOf('$');
+      const epName = idx >= 0 ? raw.slice(0, idx).trim() : (raw.trim() || '正片');
+      const url    = idx >= 0 ? raw.slice(idx + 1).trim() : raw.trim();
+      if(!url || seen.has(url)) return;
+      seen.add(url);
+      playList.push({
+        lineName: lineName || ('线路' + (i + 1)),
+        epName:   epName || '正片',
+        url
+      });
+    });
+  });
+
+  return {
+    cover: abs(vod.vod_pic || '', ''),
+    magnets: [],
+    playPageUrl: '',
+    playList
+  };
+}
+
+
 
 /* ============================================================
    通用工具
@@ -2345,6 +2481,57 @@ async function doSearch(keyword){
   renderSkeleton();
 
   try{
+  /* ★★★ 聚合源：并发请求 3 个子源，合并结果 ★★★ */
+if(mySource === 'juhe'){
+  const apis = SOURCES.juhe._apis;
+
+  // 每个子源一个请求
+  const tasks = apis.map(async (sub) => {
+    const searchUrl = sub.api + (sub.api.includes('?') ? '&' : '?') +
+                      'ac=videolist&wd=' + encodeURIComponent(keyword);
+    try {
+      const text = await fetchViaRelay(searchUrl, { method: 'GET' });
+      if(myToken !== searchToken || mySource !== currentSource) return [];
+      const result = parseAppleCMSList(text, { name: sub.name, base: sub.api });
+      // 给每条结果打上子源标记，方便区分
+      return (result.list || []).map(it => ({ ...it, _subSource: sub.name }));
+    } catch (e) {
+      console.warn('[' + sub.name + '] 搜索失败：', e.message);
+      return [];
+    }
+  });
+
+  // 等所有子源返回
+  const resultsArr = await Promise.all(tasks);
+  if(myToken !== searchToken || mySource !== currentSource) return;
+
+  // 扁平化 + 去重（同名同年只留一个）
+  const all = resultsArr.flat();
+  const seen = new Set();
+  const merged = [];
+  all.forEach(it => {
+    const key = (it.name || '') + '|' + (it.year || '');
+    if(seen.has(key)) return;
+    seen.add(key);
+    merged.push(it);
+  });
+
+  // 写入分页状态
+  pageState.prevUrl     = '';
+  pageState.nextUrl     = '';
+  pageState.hasPrev     = false;
+  pageState.hasMore     = false;
+  pageState.currentPage = 1;
+  pageState.totalPages  = 1;
+  pageState.totalCount  = merged.length;
+  pageState.flixLastRank = null;
+
+  renderCards(merged, keyword, false);
+  return;   // ← 结束 juhe 分支，不再往下走
+}
+/* ★★★ 聚合源分支结束 ★★★ */
+
+
     const src = SOURCES[mySource];
     const postOpts = src.getSearchOptions(keyword);
     let txt = '';
@@ -2511,7 +2698,34 @@ if(currentSource === 'flixflop'){
     playPageUrl: '',
     playList
   };
-} else {
+}
+// ★★★ 新增：聚合源分支（用 _subSource 精确定位子源）★★★
+else if(currentSource === 'juhe'){
+  const vodId = item._appleCMSVodId;
+  const subName = item._subSource;   // '火狐' / '百度' / '虎牙'
+  const sub = SOURCES.juhe._apis.find(s => s.name === subName);
+
+  if(!vodId || !sub){
+    detailData = { cover: item.cover || '', magnets: [], playPageUrl: '', playList: [] };
+  } else {
+    try {
+      const sep = sub.api.includes('?') ? '&' : '?';
+      const detailUrl = sub.api + sep + 'ac=videolist&ids=' + encodeURIComponent(vodId);
+      const txt = await fetchViaRelay(detailUrl, { method: 'GET' });
+      if(!detailOpen) return;
+      const parsed = parseAppleCMSDetail(txt);
+      parsed.cover = parsed.cover || item.cover || '';
+      detailData = parsed;
+    } catch(e){
+      console.warn('[' + sub.name + '] 详情失败：', e.message);
+      detailData = { cover: item.cover || '', magnets: [], playPageUrl: '', playList: [] };
+    }
+  }
+}
+/* ★★★ 聚合源分支结束 ★★★ */
+else {
+
+
   const html = await requestUrl(item.href);
   if(!detailOpen) return;
   const src = SOURCES[currentSource];
@@ -2987,6 +3201,7 @@ function switchSource(src){
     { src:'cilixiong', name:'磁力熊' },
     { src:'xiaomifeng', name:'小蜜蜂' },
     { src:'feikuai',    name:'飞快TV' },
+    { src:'juhe',       name:'聚合源' },
     { src:'ffzy',       name:'非凡资源' },
     { src:'flixflop',   name:'飞流视频' },
     { src:'ikanbot',    name:'爱看机器人' },

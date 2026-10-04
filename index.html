@@ -631,63 +631,40 @@ ikanbot: {
       });
     });
 
-/* ---------- 解析分页：上一页 / 下一页 ---------- */
-let prevUrl = '', nextUrl = '';
-let hasPrev = false, hasMore = false;
+  /* ---------- 解析分页：仅保留"下一页"用于"加载更多" ---------- */
+  let hasMore = false;
+  let nextUrl = '';
 
-const pageMoreBox = doc.querySelector('.page-more');
-if(pageMoreBox){
-  pageMoreBox.querySelectorAll('a').forEach(a => {
-    const text = (a.textContent || '').trim();
-    const h = a.getAttribute('href') || '';
-    const onclick = a.getAttribute('onclick') || '';
+  const pageMoreBox = doc.querySelector('.page-more');
+  if(pageMoreBox){
+    pageMoreBox.querySelectorAll('a').forEach(a => {
+      const text = (a.textContent || '').trim();
+      const h = a.getAttribute('href') || '';
+      const onclick = a.getAttribute('onclick') || '';
 
-    // 过滤假链接：href 为空 / # / javascript: / history.back()
-    const isFake =
-      !h ||
-      h === '#' ||
-      h.indexOf('javascript:') === 0 ||
-      /history\.back/i.test(onclick);
+      const isFake =
+        !h ||
+        h === '#' ||
+        h.indexOf('javascript:') === 0 ||
+        /history\.back/i.test(onclick);
 
-    if(isFake) return;
+      if(isFake) return;
 
-    if(text.indexOf('上一页') >= 0){
-      hasPrev = true;
-      prevUrl = abs(h, this.base);
-    } else if(text.indexOf('下一页') >= 0){
-      hasMore = true;
-      nextUrl = abs(h, this.base);
-    }
-  });
-}
-
-  // 从 URL 的 p 参数反推当前页码
-  function getP(href){
-    const m = String(href).match(/[?&]p=(\d+)/);
-    return m ? parseInt(m[1], 10) : 0;
+      if(text.indexOf('下一页') >= 0){
+        hasMore = true;
+        nextUrl = abs(h, this.base);
+      }
+    });
   }
-  const prevP = getP(prevUrl);
-  const nextP = getP(nextUrl);
-
-  let currentPage = 1;
-  if(hasPrev && prevP === 0){
-    currentPage = 2;
-  } else if(prevP > 0){
-    currentPage = prevP + 1;
-  } else if(nextP > 0){
-    currentPage = Math.max(1, nextP - 1);
-  }
-
-  const totalPages = hasMore ? (currentPage + 1) : currentPage;
 
   return {
     list,
-    prevUrl,
+    prevUrl: '',
     nextUrl,
-    hasPrev,
+    hasPrev: false,
     hasMore,
-    currentPage,
-    totalPages,
+    currentPage: 1,
+    totalPages: 0,
     totalCount: list.length
   };
 },
@@ -2422,6 +2399,28 @@ function updatePaginationUI(){
     return;
   }
 
+
+
+// 爱看机器人：加载更多模式（服务端"上一页"是加密链接，无法重放）
+if(currentSource === 'ikanbot'){
+  if(pageState.hasMore){
+    box.className = 'pagination-box';
+    box.innerHTML =
+      '<button class="btn-page" id="btnLoadMore">加载更多</button>' +
+      '<span class="page-info">已加载 <b>' + pageState.totalCount + '</b> 条</span>';
+    const moreBtn = $('#btnLoadMore');
+    if(moreBtn) moreBtn.onclick = function(){ loadMoreIkanbot(); };
+  } else {
+    box.className = 'pagination-box';
+    box.innerHTML = pageState.totalCount > 0
+      ? '<span style="font-size:12px;color:var(--sub)">— 已加载全部搜索结果 —</span>'
+      : '';
+  }
+  return;
+}
+
+
+
   // 其他源：原有上一页/下一页
   if(pageState.totalPages > 1 || pageState.hasPrev || pageState.hasMore){
     box.className = 'pagination-box';
@@ -2641,6 +2640,48 @@ async function loadMoreFlix(){
       moreBtn.textContent = '加载更多';
     }
   }
+  
+  
+/* 爱看机器人专用：加载更多（追加卡片，不清空已加载的） */
+async function loadMoreIkanbot(){
+  if(currentSource !== 'ikanbot') return;
+  if(!pageState.nextUrl){
+    toast('没有更多了');
+    return;
+  }
+
+  const moreBtn = $('#btnLoadMore');
+  if(moreBtn){
+    moreBtn.disabled = true;
+    moreBtn.textContent = '加载中…';
+  }
+
+  try{
+    const html = await requestUrl(pageState.nextUrl);
+    const result = SOURCES.ikanbot.parseList(html);
+
+    pageState.nextUrl     = result.nextUrl || '';
+    pageState.hasMore     = !!result.hasMore;
+    pageState.currentPage = (pageState.currentPage || 1) + 1;
+    pageState.totalCount += result.list.length;
+
+    if(result.list.length){
+      renderCards(result.list, pageState.currentKeyword, true);
+    } else {
+      toast('没有更多了');
+      updatePaginationUI();
+    }
+  }catch(e){
+    console.error(e);
+    toast('加载失败：' + e.message);
+    if(moreBtn){
+      moreBtn.disabled = false;
+      moreBtn.textContent = '加载更多';
+    }
+  }
+}
+
+
 }
 
 async function gotoPage(targetUrl){

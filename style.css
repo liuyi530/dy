@@ -393,31 +393,7 @@ body{
 .btn-copy.done{background:var(--main);color:#04150f;border-color:var(--main)}
 .btn-open{background:linear-gradient(135deg,var(--main),var(--main2));color:#04150f}
 
-/* 视频解析 */
-.jiexi-box{ width: 100%; margin: 20px auto; padding: 0 10px; animation: fadeIn .4s ease; }
-.jiexi-card{ background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 0px; }
-.jiexi-row{ display:flex; gap:10px; margin-bottom:14px; align-items:center; flex-wrap:nowrap; }
-.jiexi-row label{ font-size:14px; color:var(--sub); font-weight:600; white-space:nowrap; }
-.jiexi-select{
-  flex:1 1 auto; min-width:80px; height:42px;
-  background:var(--bg2); border:1px solid var(--line); border-radius:10px;
-  color:var(--txt); padding:0 10px; font-size:14px; outline:none; cursor:pointer;
-}
-.jiexi-select option{ background:var(--card); color:var(--txt); }
-.jiexi-go-btn{
-  flex:0 0 auto; height:42px; padding:0 18px;
-  background:linear-gradient(135deg,var(--main),var(--main2));
-  border:none; border-radius:10px; color:#04150f;
-  font-weight:700; font-size:14px; cursor:pointer; white-space:nowrap; transition:.15s;
-}
-.jiexi-go-btn:active{transform:scale(.96)}
 
-.jiexi-player{
-  margin-top: 16px; width: 100%; height: 460px;
-  background: #000; border-radius: 10px; overflow: hidden;
-  border: 1px solid var(--line); display: none;
-}
-.jiexi-player iframe{ width:100%; height:100%; border:none; display:block; }
 
 /* 动画 */
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}

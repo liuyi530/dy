@@ -2319,45 +2319,7 @@ function renderError(msg, keyword){
   if(r) r.onclick = function(){ doSearch(keyword); };
 }
 
-function renderJiexiUI(){
-  $('#stat').style.display = 'none';
-  const html =
-    '<div class="jiexi-box">' +
-      '<div class="jiexi-card">' +
-        '<div class="jiexi-row">' +
-          '<label>线路选择：</label>' +
-          '<select id="jiexiLine" class="jiexi-select">' +
-            '<option value="https://im1907.top/?jx=">直搜片名1</option>' +
-            '<option value="https://am1907.top/?jx=">直搜片名2</option>' +
-          '</select>' +
-          '<button id="btnJiexiDo" class="jiexi-go-btn">点击解析</button>' +
-        '</div>' +
-        '<div class="jiexi-player" id="jiexiPlayer">' +
-          '<iframe id="jiexiFrame" allowfullscreen allow="autoplay; encrypted-media"></iframe>' +
-        '</div>' +
-      '</div>' +
-    '</div>';
-  $('#content').innerHTML = html;
 
-  const doJiexi = function(){
-    const val = $('#kw').value.trim();
-    if(!val){ toast('请输入内容'); return; }
-    const line = $('#jiexiLine').value;
-    const player = $('#jiexiPlayer');
-    const frame = $('#jiexiFrame');
-    player.style.display = 'block';
-    frame.src = line + encodeURIComponent(val);
-    toast('已发起解析');
-  };
-
-  $('#btnJiexiDo').onclick = doJiexi;
-  $('#kw').addEventListener('keydown', function(e){
-    if(e.key === 'Enter' || e.keyCode === 13){
-      e.preventDefault();
-      doJiexi();
-    }
-  });
-}
 
 /* ============================================================
    核心业务
@@ -2369,10 +2331,6 @@ async function doSearch(keyword){
   const myToken = ++searchToken;
   const mySource = currentSource;
 
-  if(mySource === 'jiexi'){
-    renderJiexiUI();
-    return;
-  }
 
   pageState.currentKeyword = keyword;
   pageState.prevUrl = '';
@@ -2993,9 +2951,8 @@ function switchSource(src){
   currentSource = src;
   searchToken++;
   if(window.__srcSwiperSet){
-  window.__srcSwiperSet(src);
-}
-
+    window.__srcSwiperSet(src);
+  }
 
   pageState.prevUrl = '';
   pageState.nextUrl = '';
@@ -3007,20 +2964,14 @@ function switchSource(src){
   pageState.flixLastRank = null;
   pageState.flixAllList = [];
 
-  if(src === 'jiexi'){
-    $('.searchrow').style.display = 'none';
-    toast('已切换：视频解析');
-    renderJiexiUI();
+  $('.searchrow').style.display = 'flex';
+  toast('已切换数据源：' + SOURCES[src].name);
+  const kw = $('#kw').value.trim();
+  if(kw){
+    doSearch(kw);
   } else {
-    $('.searchrow').style.display = 'flex';
-    toast('已切换数据源：' + SOURCES[src].name);
-    const kw = $('#kw').value.trim();
-    if(kw){
-      doSearch(kw);
-    } else {
-      $('#content').innerHTML = '';
-      $('#stat').style.display = 'none';
-    }
+    $('#content').innerHTML = '';
+    $('#stat').style.display = 'none';
   }
 }
 
@@ -3039,7 +2990,6 @@ function switchSource(src){
     { src:'ffzy',       name:'非凡资源' },
     { src:'flixflop',   name:'飞流视频' },
     { src:'ikanbot',    name:'爱看机器人' },
-    { src:'jiexi',      name:'视频解析' }
   ];
 
 

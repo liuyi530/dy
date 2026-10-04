@@ -2640,8 +2640,10 @@ async function loadMoreFlix(){
       moreBtn.textContent = '加载更多';
     }
   }
-  
-  
+}
+
+
+
 /* 爱看机器人专用：加载更多（追加卡片，不清空已加载的） */
 async function loadMoreIkanbot(){
   if(currentSource !== 'ikanbot') return;
@@ -2681,8 +2683,6 @@ async function loadMoreIkanbot(){
   }
 }
 
-
-}
 
 async function gotoPage(targetUrl){
   if(!targetUrl) return;

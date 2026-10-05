@@ -35,9 +35,18 @@ export async function onRequest(context) {
 
   /* ========== 请求类型判断 ========== */
   const isM3U8 = /\.m3u8(\?|#|$)/i.test(target) || /\.m3u8$/i.test(pathLower);
-  const isMedia = isM3U8 ||
-                  /\.(ts|mp4|flv|key|m4s|aac)(\?|#|$)/i.test(target) ||
-                  /\.(ts|mp4|flv|key|m4s|aac)$/i.test(pathLower);
+
+  // ★ 关键修复：补全音频类型
+  const isAudio = /\.(mp3|m4a|aac|flac|wav|ogg|opus)(\?|#|$)/i.test(target) ||
+                  /\.(mp3|m4a|aac|flac|wav|ogg|opus)$/i.test(pathLower);
+
+  const isVideoChunk = /\.(ts|mp4|flv|key|m4s)(\?|#|$)/i.test(target) ||
+                       /\.(ts|mp4|flv|key|m4s)$/i.test(pathLower);
+
+  // 网易云外链走特殊路径（带 song/media/outer）
+  const isNeteaseOuter = /music\.163\.com\/song\/media\/outer/i.test(target);
+
+  const isMedia = isM3U8 || isAudio || isVideoChunk || isNeteaseOuter;
 
   const isApiPath = /\/api\//i.test(targetUrl.pathname) ||
                     /\/v[0-9]+\//i.test(targetUrl.pathname) ||
@@ -51,10 +60,8 @@ export async function onRequest(context) {
   const customAccept  = request.headers.get('x-target-accept')  || '';
   const customCookie  = request.headers.get('x-target-cookie')  || '';
 
-  // ★ 前端没传 cookie 时，用代理自己记住的（PHPSESSID 等）
   const effectiveCookie = customCookie || lastReceivedCookie;
 
-  // ★ 判断是不是 API 请求：路径像 API，或前端声明 Accept 为 JSON
   const isApiRequest = isApiPath || /application\/json/i.test(customAccept);
 
   /* ========== 构造请求 Header ========== */
@@ -64,14 +71,26 @@ export async function onRequest(context) {
   });
 
   if (isMedia) {
+    // ★ 音频/视频：完全模拟浏览器媒体请求
     reqHeaders.set('Accept', '*/*');
-    reqHeaders.set('Sec-Fetch-Dest', 'empty');
-    reqHeaders.set('Sec-Fetch-Mode', 'cors');
+    reqHeaders.set('Sec-Fetch-Dest', 'audio');           // 音频用 audio，视频用 video，这里统一 audio 也行
+    reqHeaders.set('Sec-Fetch-Mode', 'no-cors');         // 媒体请求是 no-cors
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
-    if (customReferer) {
+
+    // ★ 关键：网易云外链必须带 Referer + Origin
+    if (isNeteaseOuter) {
+      reqHeaders.set('Referer', customReferer || 'https://music.163.com/');
+      reqHeaders.set('Origin', 'https://music.163.com');
+    } else if (customReferer) {
       reqHeaders.set('Referer', customReferer);
-      try { reqHeaders.set('Origin', new URL(customReferer).origin); } catch(e){}
+      try { reqHeaders.set('Origin', new URL(customReferer).origin); } catch (e) {}
+    } else {
+      reqHeaders.set('Referer', targetOrigin + '/');
     }
+
+    // 允许 Range 透传（拖动进度条需要）
+    const range = request.headers.get('range');
+    if (range) reqHeaders.set('Range', range);
 
   } else if (isApiRequest) {
     reqHeaders.set('Accept', customAccept || 'application/json, text/plain, */*');
@@ -79,7 +98,7 @@ export async function onRequest(context) {
     reqHeaders.set('Sec-Fetch-Mode', 'cors');
     reqHeaders.set('Sec-Fetch-Site', 'cross-site');
     reqHeaders.set('Referer', customReferer || (targetOrigin + '/'));
-    try { reqHeaders.set('Origin', new URL(customReferer || targetOrigin).origin); } catch(e){
+    try { reqHeaders.set('Origin', new URL(customReferer || targetOrigin).origin); } catch (e) {
       reqHeaders.set('Origin', targetOrigin);
     }
 
@@ -126,7 +145,7 @@ export async function onRequest(context) {
 
     /* ========== 响应处理 ========== */
 
-    // ① M3U8：重写分片链接，走代理
+    // ① M3U8：重写分片链接
     if (respIsM3U8) {
       let text = await resp.text();
       const baseUrl = target.substring(0, target.lastIndexOf('/') + 1);
@@ -158,7 +177,7 @@ export async function onRequest(context) {
       return new Response(text, { status: resp.status, headers });
     }
 
-    // ② JSON / API：直接透传二进制，不重写
+    // ② JSON / API：透传二进制
     if (respIsJson) {
       const body = await resp.arrayBuffer();
       headers.set('Content-Type', ct || 'application/json');
@@ -167,7 +186,6 @@ export async function onRequest(context) {
       const setCookieHeader = resp.headers.get('set-cookie');
       if (setCookieHeader) {
         headers.set('x-set-cookie', setCookieHeader);
-        // ★ 从 set-cookie 中提取 PHPSESSID 并记住
         const m = setCookieHeader.match(/PHPSESSID=[^;]+/);
         if (m) lastReceivedCookie = m[0];
       }
@@ -175,11 +193,26 @@ export async function onRequest(context) {
       return new Response(body, { status: resp.status, headers });
     }
 
-    // ③ HTML / 其他：二进制透传
+    // ★ ③ 音频/视频：流式透传，不要 arrayBuffer（大文件会爆内存）
+    if (isMedia) {
+      headers.set('Content-Type', ct || 'audio/mpeg');
+      headers.set('Cache-Control', 'no-store');
+
+      // 透传 Range 支持（206 分片）
+      const contentRange = resp.headers.get('content-range');
+      const acceptRanges = resp.headers.get('accept-ranges');
+      const contentLength = resp.headers.get('content-length');
+      if (contentRange) headers.set('Content-Range', contentRange);
+      if (acceptRanges) headers.set('Accept-Ranges', acceptRanges);
+      if (contentLength) headers.set('Content-Length', contentLength);
+
+      return new Response(resp.body, { status: resp.status, headers });
+    }
+
+    // ④ HTML / 其他：二进制透传
     const body = await resp.arrayBuffer();
     if (ct) headers.set('Content-Type', ct);
 
-    // iframe 嵌入（视频解析用）
     if (isIframeReq) {
       headers.set('X-Frame-Options', 'ALLOWALL');
       headers.set('Content-Security-Policy', "frame-ancestors *");
@@ -189,7 +222,6 @@ export async function onRequest(context) {
     const setCookieHeader = resp.headers.get('set-cookie');
     if (setCookieHeader) {
       headers.set('x-set-cookie', setCookieHeader);
-      // ★ 从 set-cookie 中提取 PHPSESSID 并记住
       const m = setCookieHeader.match(/PHPSESSID=[^;]+/);
       if (m) lastReceivedCookie = m[0];
     }
@@ -209,7 +241,7 @@ function cors() {
     'Access-Control-Allow-Origin': ALLOW_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': '*',
-    'Access-Control-Expose-Headers': 'x-set-cookie',
+    'Access-Control-Expose-Headers': 'x-set-cookie, content-range, accept-ranges, content-length',
     'Access-Control-Max-Age': '86400',
   };
 }

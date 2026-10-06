@@ -177,13 +177,77 @@
     transform: scale(1.02);
   }
 
-  .player { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #eee; box-shadow: 0 -2px 12px rgba(0,0,0,.08); z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
-  .progress-wrap { padding: 8px 14px 0; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #999; }
+  /* ============ 播放器 ============ */
+  .player {
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    background: #fff;
+    border-top: 1px solid #eee;
+    box-shadow: 0 -2px 12px rgba(0,0,0,.08);
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* 进度条行（最上） */
+  .progress-wrap {
+    padding: 6px 14px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #999;
+  }
   .progress-wrap .time { flex-shrink: 0; min-width: 32px; text-align: center; }
-  .progress-bar { flex: 1; height: 4px; background: #e6e8ec; border-radius: 2px; position: relative; cursor: pointer; touch-action: none; }
-  .progress-bar .fill { height: 100%; width: 0%; background: #1db954; border-radius: 2px; transition: width .1s linear; }
-  .progress-bar .dot { position: absolute; top: 50%; left: 0%; width: 12px; height: 12px; background: #1db954; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 1px 3px rgba(0,0,0,.2); pointer-events: none; }
-  .player-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px 12px; }
+  /* 可视 4px，但整个容器高 28px 用于接收点击 */
+  .progress-bar {
+    flex: 1;
+    height: 28px;
+    position: relative;
+    cursor: pointer;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+  }
+  .progress-bar::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 4px;
+    background: #e6e8ec;
+    border-radius: 2px;
+    transform: translateY(-50%);
+  }
+  .progress-bar .fill {
+    position: absolute;
+    left: 0; top: 50%;
+    height: 4px;
+    width: 0%;
+    background: #1db954;
+    border-radius: 2px;
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+  .progress-bar .dot {
+    position: absolute;
+    top: 50%;
+    left: 0%;
+    width: 14px;
+    height: 14px;
+    background: #1db954;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 1px 3px rgba(0,0,0,.2);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* 信息+控制行（下） */
+  .player-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 14px 12px;
+  }
   .player-info { flex: 1; min-width: 0; }
   .player-info .title-row {
     display: flex;
@@ -202,14 +266,14 @@
     overflow-wrap: anywhere;
   }
   .player-info .sub { font-size: 11px; color: #888; line-height: 1.3; max-height: calc(1.3em * 1); overflow: hidden; margin-top: 2px; word-break: break-word; overflow-wrap: anywhere; }
-  .player-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .player-controls { display: flex; align-items: center; gap: 4px; flex-shrink: 0; margin-left: auto; }
   .ctrl-btn { width: 38px; height: 38px; border: none; background: transparent; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #333; padding: 0; }
   .ctrl-btn:active { background: #f0f2f5; }
   .ctrl-btn.play { width: 44px; height: 44px; background: #1db954; color: #fff; box-shadow: 0 2px 6px rgba(29,185,84,.35); }
   .ctrl-btn.play:active { background: #17a447; }
   .ctrl-btn svg { display: block; }
 
-  /* ★ 播放器歌名左侧下载按钮 */
+  /* 下载按钮（歌名左侧） */
   .dl-current-btn {
     flex-shrink: 0;
     width: 24px;
@@ -303,6 +367,16 @@
 </div>
 
 <div class="player" id="player" style="display:none">
+  <!-- 进度条行（上） -->
+  <div class="progress-wrap">
+    <span class="time" id="t-cur">0:00</span>
+    <div class="progress-bar" id="progress">
+      <div class="fill" id="progress-fill"></div>
+      <div class="dot" id="progress-dot"></div>
+    </div>
+    <span class="time" id="t-dur">0:00</span>
+  </div>
+  <!-- 信息 + 控制行（下） -->
   <div class="player-row">
     <div class="player-info">
       <div class="title-row">
@@ -331,14 +405,6 @@
         </svg>
       </button>
     </div>
-  </div>
-  <div class="progress-wrap">
-    <span class="time" id="t-cur">0:00</span>
-    <div class="progress-bar" id="progress">
-      <div class="fill" id="progress-fill"></div>
-      <div class="dot" id="progress-dot"></div>
-    </div>
-    <span class="time" id="t-dur">0:00</span>
   </div>
 </div>
 
@@ -374,7 +440,7 @@ let pendingDirHandle = null;
 let activeDownload = null;
 let failedDownloads = new Set();
 
-// ★ IN音乐 .mp3 地址内存缓存（避免二次请求页面）
+// IN音乐 .mp3 地址内存缓存（避免二次请求页面）
 const inmp3UrlCache = new Map();
 
 const audio = document.getElementById('audio');
@@ -1374,8 +1440,12 @@ async function play(source, i) {
     }
     audio.play().then(() => updatePlayIcon(true)).catch(() => alert('这首歌播放不了'));
   };
-  audio.onerror = () => { if (myToken === playToken) alert('这首歌加载失败'); };
-  // ★ 不再自动下载
+  audio.onerror = () => {
+    if (myToken !== playToken) return;
+    if (audio.ended) return;   // 播完触发的不处理
+    const code = audio.error && audio.error.code;
+    if (code === 2 || code === 4) alert('这首歌加载失败');
+  };
 }
 
 async function playFavorite(index) {
@@ -1434,7 +1504,12 @@ async function playFavorite(index) {
     if (myToken !== playToken) return;
     audio.play().then(() => updatePlayIcon(true)).catch(() => alert('播放失败'));
   };
-  audio.onerror = () => { if (myToken === playToken) alert('加载失败'); };
+  audio.onerror = () => {
+    if (myToken !== playToken) return;
+    if (audio.ended) return;
+    const code = audio.error && audio.error.code;
+    if (code === 2 || code === 4) alert('加载失败');
+  };
 }
 
 function updateFavNavButtons() {
@@ -1497,7 +1572,6 @@ async function inmp3Search(kw, page = 1) {
   return { list: out, totalPages };
 }
 
-// ★ IN音乐 加缓存：同一首歌二次播放不重新请求页面
 async function inmp3GetSongFresh(rid) {
   if (inmp3UrlCache.has(rid)) {
     return { audioSrc: inmp3UrlCache.get(rid) };
@@ -1663,8 +1737,13 @@ function renderColumn(id, arr, source) {
       ${s.album ? `<div class="album">${escapeHtml(s.album)}</div>` : ''}
     `;
 
+    // ★ pointerdown/pointerup 都 stopPropagation，避免触发卡片的 tap 播放
     const star = div.querySelector('.fav-toggle');
-    star.onclick = (e) => { e.stopPropagation(); toggleFavorite(s); };
+    star.addEventListener('pointerdown', (e) => e.stopPropagation());
+    star.addEventListener('pointerup', (e) => {
+      e.stopPropagation();
+      toggleFavorite(s);
+    });
 
     attachTap(div, () => play(source, i));
     box.appendChild(div);
@@ -1810,6 +1889,9 @@ audio.addEventListener('pause', () => updatePlayIcon(false));
 
 audio.addEventListener('ended', () => {
   updatePlayIcon(false);
+  // ★ 先清 error，避免播完触发弹窗
+  audio.onerror = null;
+
   if (favPlayingIdx) {
     const i = favPlayingIdx.index;
     if (i < favList.length - 1) playFavorite(i + 1);
@@ -1821,25 +1903,71 @@ audio.addEventListener('ended', () => {
   if (index < list.length - 1) playNext();
 });
 
-function seekFromClientX(clientX) {
-  if (!audio.duration) return;
-  const rect = progressBar.getBoundingClientRect();
-  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-  audio.currentTime = pct * audio.duration;
-  setProgress(audio.currentTime, audio.duration);
+// ============ 进度条拖动 ============
+let progressDrag = null;   // { mode: 'dot'|'bar', startX, startTime }
+
+function getBarRect() {
+  return progressBar.getBoundingClientRect();
 }
-let seeking = false;
+function timeFromClientX(clientX) {
+  const rect = getBarRect();
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  return pct * (audio.duration || 0);
+}
+function isOnDot(clientX, clientY) {
+  const rect = getBarRect();
+  const pct = audio.duration ? (audio.currentTime / audio.duration) : 0;
+  const dotX = rect.left + pct * rect.width;
+  const dotY = rect.top + rect.height / 2;
+  const dx = Math.abs(clientX - dotX);
+  const dy = Math.abs(clientY - dotY);
+  return dx <= 12 && dy <= 16;
+}
+
 progressBar.addEventListener('pointerdown', (e) => {
-  seeking = true;
+  if (!audio.duration) return;
   progressBar.setPointerCapture?.(e.pointerId);
-  seekFromClientX(e.clientX);
+  e.preventDefault();
+
+  if (isOnDot(e.clientX, e.clientY)) {
+    progressDrag = { mode: 'dot' };
+    audio.currentTime = timeFromClientX(e.clientX);
+    setProgress(audio.currentTime, audio.duration);
+  } else {
+    progressDrag = {
+      mode: 'bar',
+      startX: e.clientX,
+      startTime: audio.currentTime,
+    };
+  }
 });
-progressBar.addEventListener('pointermove', (e) => { if (seeking) seekFromClientX(e.clientX); });
-progressBar.addEventListener('pointerup', (e) => {
-  seeking = false;
+
+progressBar.addEventListener('pointermove', (e) => {
+  if (!progressDrag) return;
+  e.preventDefault();
+
+  if (progressDrag.mode === 'dot') {
+    audio.currentTime = timeFromClientX(e.clientX);
+    setProgress(audio.currentTime, audio.duration);
+  } else if (progressDrag.mode === 'bar') {
+    const rect = getBarRect();
+    const dx = e.clientX - progressDrag.startX;
+    const pctDelta = dx / rect.width;
+    const timeDelta = pctDelta * audio.duration;
+    let newTime = progressDrag.startTime + timeDelta;
+    newTime = Math.max(0, Math.min(audio.duration, newTime));
+    audio.currentTime = newTime;
+    setProgress(newTime, audio.duration);
+  }
+});
+
+const endProgressDrag = (e) => {
+  if (!progressDrag) return;
+  progressDrag = null;
   try { progressBar.releasePointerCapture?.(e.pointerId); } catch (err) {}
-});
-progressBar.addEventListener('pointercancel', () => { seeking = false; });
+};
+progressBar.addEventListener('pointerup', endProgressDrag);
+progressBar.addEventListener('pointercancel', endProgressDrag);
 
 document.getElementById('kw').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();

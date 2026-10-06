@@ -38,9 +38,7 @@
   .song.in:active { background: #bfd9ff; }
   .song.in.playing { border-color: #1e6fff; background: #bfd9ff; }
 
-  .song .fav-toggle { position: absolute; top: 4px; font-size: 16px; color: #f5a623; opacity: .3; transition: opacity .15s; user-select: none; z-index: 2; padding: 2px 4px; }
-  .song.tz .fav-toggle { right: 4px; }
-  .song.in .fav-toggle { right: 4px; }
+  .song .fav-toggle { position: absolute; top: 4px; right: 4px; font-size: 16px; color: #f5a623; opacity: .3; transition: opacity .15s; user-select: none; z-index: 2; padding: 2px 4px; }
   .song .fav-toggle.active { opacity: 1; }
 
   .song .offline-badge { position: absolute; top: 4px; font-size: 12px; display: none; z-index: 2; left: 4px; }
@@ -80,29 +78,24 @@
   .fav-header { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 16px; padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; position: sticky; top: 0; background: #fff; z-index: 3; }
   .fav-header .fav-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .fav-header .sort-btn,
-  .fav-header .cache-btn,
   .fav-header .export-btn,
   .fav-header .import-btn,
   .fav-header .dir-btn,
   .fav-header .clear-btn {
     background: #eef1f4;
     border: none;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: #444;
-    padding: 5px 10px;
+    padding: 5px 9px;
     border-radius: 8px;
     cursor: pointer;
   }
   .fav-header .sort-btn.active { background: #1db954; color: #fff; }
-  .fav-header .cache-btn { background: #1db954; color: #fff; }
-  .fav-header .cache-btn:disabled { background: #a8dfb9; cursor: default; }
-  .fav-header .cache-btn.busy { background: #f5a623; }
   .fav-header .export-btn { background: #1e6fff; color: #fff; }
   .fav-header .import-btn { background: #9c27b0; color: #fff; }
   .fav-header .dir-btn { background: #ff9800; color: #fff; }
   .fav-header .dir-btn.connected { background: #4caf50; }
-  .fav-header .dir-btn.warn { background: #e53935; }
   .fav-header .clear-btn { background: #e53935; color: #fff; }
   .fav-header .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; line-height: 1; padding: 0 4px; }
 
@@ -158,7 +151,6 @@
   }
   .fav-item .drag-handle:active { cursor: grabbing; }
 
-  /* ★ 新增：下载按钮 */
   .fav-item .dl-btn {
     background: #ff9800;
     color: #fff;
@@ -171,7 +163,6 @@
     flex-shrink: 0;
   }
   .fav-item .dl-btn:active { background: #e88a00; }
-  .fav-item .dl-btn:disabled { background: #ccc; cursor: default; }
 
   .fav-inner.sorting .fav-item .dl-btn { display: none; }
   .fav-inner.sorting .fav-item .drag-handle { display: flex; }
@@ -225,16 +216,6 @@
   }
   .toast.show { display: block; }
 
-  .export-panel { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 400; display: none; align-items: center; justify-content: center; padding: 20px; }
-  .export-panel.open { display: flex; }
-  .export-inner { background: #fff; border-radius: 12px; width: 100%; max-width: 400px; max-height: 80vh; display: flex; flex-direction: column; padding: 12px; }
-  .export-inner h3 { margin: 4px 0 10px; font-size: 15px; }
-  .export-inner textarea { flex: 1; min-height: 240px; font-family: monospace; font-size: 12px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; resize: none; outline: none; }
-  .export-btns { display: flex; gap: 8px; margin-top: 10px; }
-  .export-btns button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
-  .export-btns .copy { background: #1db954; color: #fff; }
-  .export-btns .close { background: #eef1f4; color: #444; }
-
   @media (max-width: 340px) {
     .song .name { font-size: 12px; }
     .song .artist, .song .album { font-size: 10px; }
@@ -272,27 +253,15 @@
     <div class="fav-header">
       <span class="fav-title">
         ⭐ 我的收藏
-        <button class="dir-btn" id="btn-dir" onclick="pickMusicDir()">选目录</button>
-        <button class="cache-btn" id="btn-cache" onclick="manualCacheAll()">缓存</button>
-        <button class="import-btn" id="btn-import" onclick="pickBatchImport()">导入</button>
-        <button class="clear-btn" id="btn-clear" onclick="clearCache()">清缓存</button>
-        <button class="export-btn" id="btn-export" onclick="openExport()">导出</button>
+        <button class="import-btn" onclick="importFavoritesJson()">导入收藏</button>
+        <button class="export-btn" onclick="exportFavJson()">导出收藏</button>
+        <button class="dir-btn" id="btn-dir" onclick="scanMusicDir()">扫描目录</button>
+        <button class="clear-btn" onclick="clearCache()">清缓存</button>
         <button class="sort-btn" id="btn-sort" onclick="toggleSortMode()">排序</button>
       </span>
       <button class="close-btn" onclick="closeFavorites()">×</button>
     </div>
     <div id="fav-list"></div>
-  </div>
-</div>
-
-<div class="export-panel" id="export-panel">
-  <div class="export-inner">
-<h3>导出：id\t歌名\t歌手（粘贴到 /sdcard/ids.txt）</h3>
-    <textarea id="export-text" readonly></textarea>
-    <div class="export-btns">
-      <button class="copy" onclick="copyExport()">复制</button>
-      <button class="close" onclick="closeExport()">关闭</button>
-    </div>
   </div>
 </div>
 
@@ -334,7 +303,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<input type="file" id="batch-import-input" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple style="display:none">
+<input type="file" id="fav-json-input" accept=".json,application/json" style="display:none">
 <audio id="audio"></audio>
 
 <script>
@@ -342,7 +311,6 @@
 const TONZHON_API = 'https://tonzhon.com/api.php';
 const PROXY = 'https://dy-r9r.pages.dev/proxy?url=';
 const MIN_DURATION = 60;
-const PREFETCH_CONCURRENCY = 2;
 const FAV_KEY = 'music_favorites_v1';
 const FAILED_KEY = 'music_failed_downloads_v1';
 const MIN_FILE_SIZE = 512;
@@ -360,14 +328,12 @@ let favPlayingIdx = null;
 let playToken = 0;
 let generation = 0;
 let sortMode = false;
-let cachingAll = false;
 
 let musicDirHandle = null;
 let pendingDirHandle = null;
-
 let activeDownload = null;
-
 let failedDownloads = new Set();
+
 
 const audio = document.getElementById('audio');
 const playerEl = document.getElementById('player');
@@ -400,16 +366,9 @@ function loadFailed() {
 function saveFailed() {
   try { localStorage.setItem(FAILED_KEY, JSON.stringify([...failedDownloads])); } catch (e) {}
 }
-function markFailed(fileName) {
-  failedDownloads.add(fileName);
-  saveFailed();
-}
-function unmarkFailed(fileName) {
-  if (failedDownloads.delete(fileName)) saveFailed();
-}
-function isFailed(fileName) {
-  return failedDownloads.has(fileName);
-}
+function markFailed(fileName) { failedDownloads.add(fileName); saveFailed(); }
+function unmarkFailed(fileName) { if (failedDownloads.delete(fileName)) saveFailed(); }
+function isFailed(fileName) { return failedDownloads.has(fileName); }
 
 // ============ 文件名 ============
 function buildLocalFileName(f) {
@@ -439,57 +398,115 @@ async function looksLikeAudio(blob) {
   return false;
 }
 
-// ============ 目录管理 ============
-async function pickMusicDir() {
+async function scanMusicDir() {
   if (!('showDirectoryPicker' in window)) {
     alert('当前浏览器不支持目录选择（showDirectoryPicker）。\n\n请用 Android Chrome 122+ 或桌面版 Chrome/Edge。');
     return;
   }
-  try {
-    if (pendingDirHandle) {
-      try {
-        const perm = await pendingDirHandle.requestPermission({ mode: 'readwrite' });
-        if (perm === 'granted') {
-          musicDirHandle = pendingDirHandle;
-          pendingDirHandle = null;
-          saveDirHandle();
-          showToast('已恢复音乐目录：' + musicDirHandle.name);
-          updateDirBtnState();
-          renderFavPanel();
-          updateAllOfflineBadges();
-          return;
-        }
-      } catch (e) { console.warn('恢复句柄失败', e); }
-    }
 
+  // ★ 先尝试恢复上次的句柄（用户点「待授权」按钮时走这里）
+  if (pendingDirHandle) {
+    try {
+      const p = await pendingDirHandle.requestPermission({ mode: 'readwrite' });
+      if (p === 'granted') {
+        musicDirHandle = pendingDirHandle;
+        pendingDirHandle = null;
+        saveDirHandle();
+        updateDirBtnState();
+        await rescanAndToast(musicDirHandle);
+        return;
+      } else {
+        // 用户拒绝，继续走下面的目录选择器
+        pendingDirHandle = null;
+        updateDirBtnState();
+      }
+    } catch (e) {
+      console.warn('恢复权限失败', e);
+      pendingDirHandle = null;
+      updateDirBtnState();
+    }
+  }
+
+  try {
     const h = await window.showDirectoryPicker({ mode: 'readwrite' });
     musicDirHandle = h;
     saveDirHandle();
-    showToast('音乐目录已设置：' + h.name);
+    await saveDirHandleToIDB(h);   // ★ 存进 IndexedDB，下次重开自动恢复
     updateDirBtnState();
-    renderFavPanel();
-    updateAllOfflineBadges();
+    await rescanAndToast(h);
   } catch (e) {
     if (e && e.name === 'AbortError') return;
     console.warn('选目录失败', e);
-    showToast('选目录失败：' + (e && e.message ? e.message : e));
+    showToast('扫描失败：' + (e && e.message ? e.message : e));
   }
 }
 
-function saveDirHandle() {
+// ★ 抽出来的扫描统计函数
+async function rescanAndToast(h) {
+  let total = 0, matched = 0;
+  const favFileNames = new Set(favList.map(buildLocalFileName));
   try {
-    if (musicDirHandle) localStorage.setItem('last_dir_name', musicDirHandle.name);
-  } catch (e) {}
+    for await (const entry of h.values()) {
+      if (entry.kind !== 'file') continue;
+      if (!entry.name.toLowerCase().endsWith('.mp3')) continue;
+      total++;
+      if (favFileNames.has(entry.name)) matched++;
+    }
+  } catch (e) { console.warn('列目录失败', e); }
+
+  showToast(`目录「${h.name}」：${total} 个 mp3，匹配收藏 ${matched} 首`, 3500);
+  await updateAllOfflineBadges();
+  if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
 }
 
-async function restoreMusicDir() {
+function saveDirHandle() {
+  try { if (musicDirHandle) localStorage.setItem('last_dir_name', musicDirHandle.name); } catch (e) {}
+}
+
+// ============ IndexedDB 存句柄 ============
+function openHandleDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('music_app_db', 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('handles')) {
+        db.createObjectStore('handles');
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveDirHandleToIDB(handle) {
   try {
-    const lastName = localStorage.getItem('last_dir_name');
-    if (lastName) {
-      updateDirBtnState();
-      console.log('ℹ 上次选的目录：', lastName, '（需要用户点击「选目录」重新授权）');
-    }
-  } catch (e) {}
+    const db = await openHandleDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').put(handle, 'musicDir');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    console.log('💾 目录句柄已存 IndexedDB');
+  } catch (e) {
+    console.warn('存句柄失败', e);
+  }
+}
+
+async function loadDirHandleFromIDB() {
+  try {
+    const db = await openHandleDB();
+    const handle = await new Promise((resolve, reject) => {
+      const tx = db.transaction('handles', 'readonly');
+      const req = tx.objectStore('handles').get('musicDir');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return handle || null;
+  } catch (e) {
+    console.warn('取句柄失败', e);
+    return null;
+  }
 }
 
 function updateDirBtnState() {
@@ -497,19 +514,16 @@ function updateDirBtnState() {
   if (!btn) return;
   if (musicDirHandle) {
     btn.classList.add('connected');
-    btn.classList.remove('warn');
     btn.textContent = '目录✓';
-    btn.title = '当前目录：' + musicDirHandle.name;
+    btn.title = '当前目录：' + musicDirHandle.name + '（点击重新扫描）';
   } else if (pendingDirHandle) {
     btn.classList.remove('connected');
-    btn.classList.add('warn');
-    btn.textContent = '点我恢复';
-    btn.title = '点击恢复目录权限';
+    btn.textContent = '待授权';
+    btn.title = '点击页面任意位置恢复目录权限';
   } else {
     btn.classList.remove('connected');
-    btn.classList.remove('warn');
-    btn.textContent = '选目录';
-    btn.title = '设置音乐目录（/sdcard/Download/聚合音乐）';
+    btn.textContent = '扫描目录';
+    btn.title = '选择 /sdcard/Download/聚合音乐 目录';
   }
 }
 
@@ -777,14 +791,12 @@ async function toggleFavorite(s) {
   }
 }
 
-// ★ 新增：收藏面板「下载」按钮调用
 async function manualDownloadFavorite(index) {
   const f = favList[index];
   if (!f) return;
 
   const fileName = buildLocalFileName(f);
 
-  // 已存在 → 直接完成
   const existing = await getFileFromDir(fileName);
   if (existing) {
     showToast(`📥 已存在：${f.name}`, 2000);
@@ -792,7 +804,6 @@ async function manualDownloadFavorite(index) {
     return;
   }
 
-  // ★ 清掉失败标记，允许重试
   unmarkFailed(fileName);
 
   showToast(`⬇ 重新下载：${f.name}`, 2000);
@@ -838,28 +849,78 @@ function closeFavorites() {
   document.getElementById('fav-panel').classList.remove('open');
 }
 
-// ============ 导出 ============
-function openExport() {
+// ============ 导出收藏 JSON ============
+function exportFavJson() {
   if (!favList.length) { showToast('收藏为空'); return; }
-  const lines = favList.map(f => {
-    const name = (f.name || '').replace(/[\t\r\n]/g, ' ').trim();
-    const artist = (f.artist || '').replace(/[\t\r\n]/g, ' ').trim();
-    if (f.source === 'tonzhon' && f.id) return `${f.id}\t${name}\t${artist}`;
-    if (f.source === 'inmp3' && f.rid) return `inmp3:${f.rid}\t${name}\t${artist}`;
-    return null;
-  }).filter(Boolean);
-  document.getElementById('export-text').value = lines.join('\n');
-  document.getElementById('export-panel').classList.add('open');
+  const data = {
+    type: 'music_favorites',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    favorites: favList
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `favorites_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  showToast(`已导出 ${favList.length} 首收藏`);
 }
-function closeExport() { document.getElementById('export-panel').classList.remove('open'); }
-function copyExport() {
-  const ta = document.getElementById('export-text');
-  ta.select(); ta.setSelectionRange(0, 999999);
-  try { document.execCommand('copy'); showToast('已复制到剪贴板'); }
-  catch (e) {
-    if (navigator.clipboard) navigator.clipboard.writeText(ta.value).then(() => showToast('已复制到剪贴板')).catch(() => showToast('复制失败'));
-    else showToast('复制失败');
-  }
+
+// ============ 导入收藏 JSON ============
+function importFavoritesJson() {
+  const input = document.getElementById('fav-json-input');
+  input.value = '';
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      let incoming = Array.isArray(data) ? data
+                   : (data && Array.isArray(data.favorites) ? data.favorites : []);
+      if (!incoming.length) { showToast('文件里没有收藏数据'); return; }
+
+      const valid = incoming.filter(f =>
+        f && f.source && f.name && (f.id || f.rid)
+      ).map(f => ({
+        source: f.source,
+        id: f.id,
+        rid: f.rid,
+        name: f.name,
+        artist: f.artist || '',
+        album: f.album || '',
+        playUrl: f.playUrl || ''
+      }));
+      if (!valid.length) { showToast('没有可导入的有效收藏'); return; }
+
+      const existing = new Set(favList.map(favKeyOf));
+      let added = 0, dup = 0;
+      for (let i = valid.length - 1; i >= 0; i--) {
+        const f = valid[i];
+        const key = favKeyOf(f);
+        if (existing.has(key)) { dup++; continue; }
+        favList.unshift(f);
+        existing.add(key);
+        added++;
+      }
+      favKeys = new Set(favList.map(favKeyOf));
+      saveFavorites();
+      renderFavPanel();
+      refreshFavStars();
+      showToast(`导入完成：新增 ${added} 首${dup ? `，重复 ${dup}` : ''}`, 3500);
+      if (musicDirHandle) await updateAllOfflineBadges();
+    } catch (e) {
+      console.warn('导入收藏失败', e);
+      showToast('导入失败：不是有效的 JSON 文件', 3000);
+    } finally {
+      input.value = '';
+      input.onchange = null;
+    }
+  };
+  input.click();
 }
 
 function toggleSortMode() {
@@ -872,7 +933,7 @@ function toggleSortMode() {
 
 // ============ 清缓存 ============
 async function clearCache() {
-  if (!musicDirHandle) { showToast('请先选目录'); return; }
+  if (!musicDirHandle) { showToast('请先扫描目录'); return; }
 
   const protectedNames = new Set(favList.map(f => buildLocalFileName(f)));
 
@@ -908,107 +969,6 @@ async function clearCache() {
   showToast(`已清空 ${removed} 首非收藏缓存${protectedNames.size ? `（保留 ${protectedNames.size} 首收藏）` : ''}`);
   await updateAllOfflineBadges();
   if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
-}
-
-// ============ 批量导入 ============
-function pickBatchImport() {
-  if (!musicDirHandle) { showToast('请先选目录'); return; }
-  if (!favList.length) { showToast('收藏为空'); return; }
-  const input = document.getElementById('batch-import-input');
-  input.value = '';
-  input.onchange = async () => {
-    const files = input.files;
-    if (!files || !files.length) return;
-    await batchImportFiles(files);
-    input.value = '';
-    input.onchange = null;
-  };
-  input.click();
-}
-
-async function batchImportFiles(fileList) {
-  const idToSong = new Map();
-  for (const f of favList) {
-    if (f.source === 'tonzhon' && f.id) idToSong.set(String(f.id), f);
-    if (f.source === 'inmp3' && f.rid) idToSong.set('inmp3-' + f.rid, f);
-  }
-  const total = fileList.length;
-  let ok = 0, skip = 0, fail = 0;
-  showToast(`开始导入 ${total} 个文件…`, 3000);
-  for (let i = 0; i < total; i++) {
-    const file = fileList[i];
-    const baseName = file.name.replace(/\.[^.]+$/, '');
-    let id = null;
-    let m = baseName.match(/^(\d+)_/);
-    if (m) id = m[1];
-    else {
-      m = baseName.match(/^(inmp3[-:]\d+)_/i);
-      if (m) id = m[1].replace(':', '-');
-      else {
-        m = baseName.match(/^(inmp3[-:]\d+)$/i);
-        if (m) id = m[1].replace(':', '-');
-        else {
-          m = baseName.match(/^(\d+)$/);
-          if (m) id = m[1];
-        }
-      }
-    }
-    if (!id) { fail++; continue; }
-    const song = idToSong.get(id);
-    if (!song) { skip++; continue; }
-    if (file.size < MIN_FILE_SIZE || !await looksLikeAudio(file)) { fail++; continue; }
-    const fileName = buildLocalFileName(song);
-    if (await writeFileToDir(fileName, file)) {
-      unmarkFailed(fileName);
-      ok++;
-    } else {
-      fail++;
-    }
-    if ((i + 1) % 5 === 0) showToast(`导入中 ${i + 1}/${total}`, 800);
-  }
-  showToast(`导入完成：成功 ${ok}/${total}${skip ? `，跳过 ${skip}` : ''}${fail ? `，失败 ${fail}` : ''}`, 4000);
-  await updateAllOfflineBadges();
-  if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
-}
-
-// ============ 手动缓存全部 ============
-async function manualCacheAll() {
-  if (cachingAll) { showToast('已经在缓存中…'); return; }
-  if (!favList.length) { showToast('没有收藏'); return; }
-  if (!musicDirHandle) { showToast('请先选目录'); return; }
-
-  cachingAll = true;
-  const btn = document.getElementById('btn-cache');
-  const oldText = btn.textContent;
-  btn.disabled = true;
-  btn.classList.add('busy');
-  btn.textContent = '缓存中…';
-
-  try {
-    let done = 0, ok = 0, skipped = 0;
-    for (const f of favList) {
-      const fileName = buildLocalFileName(f);
-      const existing = await getFileFromDir(fileName);
-      if (existing) { done++; ok++; continue; }
-      if (isFailed(fileName)) { done++; skipped++; continue; }
-      const url = await resolveOnlineUrl(f);
-      let r = false;
-      if (url) r = await downloadToCache(f, url, null);
-      if (r) ok++;
-      done++;
-      btn.textContent = `缓存中 ${done}/${favList.length}`;
-      showToast(`缓存中 ${done}/${favList.length}（成功 ${ok}）`, 1000);
-    }
-    const extra = skipped ? `，跳过 ${skipped} 个失败标记` : '';
-    showToast(`缓存完成：成功 ${ok}/${favList.length}${extra}`, 3000);
-    await updateAllOfflineBadges();
-    renderFavPanel();
-  } finally {
-    cachingAll = false;
-    btn.disabled = false;
-    btn.classList.remove('busy');
-    btn.textContent = oldText;
-  }
 }
 
 // ============ 更新卡片图标 ============
@@ -1063,8 +1023,6 @@ async function renderFavPanel() {
     wrap.dataset.index = i;
     if (favPlayingIdx && favPlayingIdx.index === i) wrap.classList.add('playing-item');
 
-    // ★ 结构改动：去掉左边的 ▶，改成点击 info 区域播放
-    // ★ 未下载的歌加一个「下载」按钮
     const showDlBtn = !offline;
     wrap.innerHTML = `
       <button class="del-btn">删除</button>
@@ -1084,13 +1042,11 @@ async function renderFavPanel() {
     const handle = wrap.querySelector('.drag-handle');
     const dlBtn = wrap.querySelector('.dl-btn');
 
-    // ★ 点击 info 播放，但用 tap 判定（移动超过阈值就取消）
     if (info) attachTap(info, () => {
       if (sortMode) return;
       playFavorite(i);
     });
 
-    // ★ 下载按钮
     if (dlBtn) {
       dlBtn.onclick = (e) => {
         e.stopPropagation();
@@ -1111,26 +1067,20 @@ async function renderFavPanel() {
   });
 }
 
-// ★ 新增：区分点击和滑动
-//   - pointerdown 记位置
-//   - pointermove 超过 8px 就判定为滑动，标记 cancelled
-//   - pointerup 时如果没 cancelled 就触发 tap
 function attachTap(el, onTap) {
-  let startX = 0, startY = 0, cancelled = false, moved = false;
+  let startX = 0, startY = 0, cancelled = false;
   el.addEventListener('pointerdown', (e) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     startX = e.clientX; startY = e.clientY;
-    cancelled = false; moved = false;
+    cancelled = false;
   });
   el.addEventListener('pointermove', (e) => {
     if (cancelled) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
-      cancelled = true;
-    }
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) cancelled = true;
   });
-  el.addEventListener('pointerup', (e) => {
+  el.addEventListener('pointerup', () => {
     if (cancelled) { cancelled = false; return; }
     onTap();
   });
@@ -1632,7 +1582,6 @@ function renderColumn(id, arr, source) {
     const star = div.querySelector('.fav-toggle');
     star.onclick = (e) => { e.stopPropagation(); toggleFavorite(s); };
 
-    // ★ 搜索页也用 attachTap，避免滑动误触
     attachTap(div, () => play(source, i));
     box.appendChild(div);
   });
@@ -1811,15 +1760,41 @@ progressBar.addEventListener('pointercancel', () => { seeking = false; });
 document.getElementById('kw').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
-
 // ============ 启动 ============
 async function boot() {
   loadFavorites();
   loadFailed();
   setNavDisabled(true, true);
-  await restoreMusicDir();
-  updateDirBtnState();
+
+  // 从 IndexedDB 恢复目录句柄
+  const savedHandle = await loadDirHandleFromIDB();
+  if (savedHandle) {
+    // 检查当前权限状态
+    let perm = 'prompt';
+    try {
+      perm = await savedHandle.queryPermission({ mode: 'readwrite' });
+    } catch (e) {
+      console.warn('查询权限失败', e);
+    }
+
+    if (perm === 'granted') {
+      // 已经永久授权，直接用
+      musicDirHandle = savedHandle;
+      console.log('✅ 目录句柄已自动恢复：', savedHandle.name);
+      updateDirBtnState();
+      updateAllOfflineBadges();
+    } else {
+      // 需要用户手势才能重新请求权限
+      // 先存到 pendingDirHandle，等用户点「待授权」按钮时再 requestPermission
+      pendingDirHandle = savedHandle;
+      console.log('⏳ 目录句柄已加载，点「待授权」按钮恢复：', savedHandle.name);
+      updateDirBtnState();
+    }
+  } else {
+    updateDirBtnState();
+  }
 }
+
 boot();
 </script>
 </body>

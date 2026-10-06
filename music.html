@@ -1,0 +1,1826 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>聚合音乐</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f7f8fa;
+    padding: 12px 12px 150px;
+    padding-bottom: calc(150px + env(safe-area-inset-bottom));
+    color: #222;
+  }
+  h2 { margin: 4px 0 12px; font-size: 20px; }
+  .bar { display: flex; gap: 8px; margin-bottom: 12px; }
+  .bar input { flex: 1; min-width: 0; padding: 10px 12px; font-size: 15px; border: 1px solid #d5d8dd; border-radius: 10px; background: #fff; outline: none; }
+  .bar input:focus { border-color: #1db954; }
+  .bar button { padding: 10px 18px; font-size: 15px; border: none; border-radius: 10px; background: #1db954; color: #fff; font-weight: 600; flex-shrink: 0; }
+  .bar button:active { background: #17a447; }
+  .bar button:disabled { background: #a8dfb9; }
+  .bar .fav-btn { background: #f5a623; padding: 10px 12px; }
+  .bar .fav-btn:active { background: #d98f15; }
+
+  .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
+  .col { min-width: 0; }
+  .col-title { font-size: 13px; font-weight: 700; padding: 2px 2px 8px; }
+  .col-title.tz { color: #e53935; }
+  .col-title.in { color: #1e6fff; }
+
+  .song { border-radius: 8px; margin-bottom: 8px; border: 1.5px solid transparent; word-break: break-word; overflow-wrap: anywhere; cursor: pointer; position: relative; transition: border-color .15s, background .15s; }
+  .song.tz { background: #ffd9d9; padding: 8px 28px 8px 18px; }
+  .song.tz:active { background: #ffc4c4; }
+  .song.tz.playing { border-color: #e53935; background: #ffc4c4; }
+  .song.in { background: #d6e6ff; padding: 8px 28px 8px 10px; }
+  .song.in:active { background: #bfd9ff; }
+  .song.in.playing { border-color: #1e6fff; background: #bfd9ff; }
+
+  .song .fav-toggle { position: absolute; top: 4px; font-size: 16px; color: #f5a623; opacity: .3; transition: opacity .15s; user-select: none; z-index: 2; padding: 2px 4px; }
+  .song.tz .fav-toggle { right: 4px; }
+  .song.in .fav-toggle { right: 4px; }
+  .song .fav-toggle.active { opacity: 1; }
+
+  .song .offline-badge { position: absolute; top: 4px; font-size: 12px; display: none; z-index: 2; left: 4px; }
+  .song.offline .offline-badge,
+  .song.downloading .offline-badge,
+  .song.failed .offline-badge { display: inline; }
+  .song.downloading .offline-badge::after { content: '⏳'; }
+  .song.offline .offline-badge::after { content: '📥'; }
+  .song.failed .offline-badge::after { content: '❌'; }
+
+  .song .name { font-weight: 600; font-size: 13px; line-height: 1.35; color: #222; margin-bottom: 4px; word-break: break-word; overflow-wrap: anywhere; }
+  .song .artist { font-size: 11px; color: #555; line-height: 1.4; word-break: break-word; overflow-wrap: anywhere; }
+  .song .album { font-size: 11px; color: #777; line-height: 1.4; margin-top: 2px; word-break: break-word; overflow-wrap: anywhere; }
+
+  .more { grid-column: 1 / -1; text-align: center; padding: 12px; color: #1db954; font-weight: 600; font-size: 14px; background: #fff; border-radius: 10px; margin-top: 4px; cursor: pointer; user-select: none; }
+  .more:active { background: #eef9f1; }
+  .more.loading { color: #999; cursor: default; }
+  .more.nomore { color: #bbb; cursor: default; }
+
+  .empty { text-align: center; color: #999; padding: 24px 6px; font-size: 12px; background: #fff; border-radius: 8px; }
+
+  .fav-panel { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 300; display: none; align-items: flex-end; }
+  .fav-panel.open { display: flex; }
+  .fav-inner {
+    background: #fff;
+    width: 100%;
+    max-height: 75vh;
+    padding: 12px 12px 20px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .fav-inner.dragging-active {
+    overflow: hidden;
+    touch-action: none;
+  }
+  .fav-header { display: flex; justify-content: space-between; align-items: center; font-weight: 700; font-size: 16px; padding-bottom: 10px; border-bottom: 1px solid #eee; margin-bottom: 10px; position: sticky; top: 0; background: #fff; z-index: 3; }
+  .fav-header .fav-title { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .fav-header .sort-btn,
+  .fav-header .cache-btn,
+  .fav-header .export-btn,
+  .fav-header .import-btn,
+  .fav-header .dir-btn,
+  .fav-header .clear-btn {
+    background: #eef1f4;
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    color: #444;
+    padding: 5px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+  .fav-header .sort-btn.active { background: #1db954; color: #fff; }
+  .fav-header .cache-btn { background: #1db954; color: #fff; }
+  .fav-header .cache-btn:disabled { background: #a8dfb9; cursor: default; }
+  .fav-header .cache-btn.busy { background: #f5a623; }
+  .fav-header .export-btn { background: #1e6fff; color: #fff; }
+  .fav-header .import-btn { background: #9c27b0; color: #fff; }
+  .fav-header .dir-btn { background: #ff9800; color: #fff; }
+  .fav-header .dir-btn.connected { background: #4caf50; }
+  .fav-header .dir-btn.warn { background: #e53935; }
+  .fav-header .clear-btn { background: #e53935; color: #fff; }
+  .fav-header .close-btn { background: none; border: none; font-size: 24px; cursor: pointer; color: #888; line-height: 1; padding: 0 4px; }
+
+  .fav-item {
+    position: relative;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #e53935;
+    touch-action: pan-y;
+  }
+  .fav-item .swipe-content {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    background: #f7f8fa;
+    transition: transform .2s ease;
+    will-change: transform;
+  }
+  .fav-item.swiped .swipe-content { transform: translateX(-72px); }
+  .fav-item .del-btn {
+    position: absolute;
+    top: 0; right: 0;
+    width: 72px;
+    height: 100%;
+    background: #e53935;
+    color: #fff;
+    border: none;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .fav-item .info { flex: 1; min-width: 0; cursor: pointer; }
+  .fav-item .name { font-weight: 600; font-size: 13px; word-break: break-word; overflow-wrap: anywhere; }
+  .fav-item .artist { font-size: 11px; color: #888; margin-top: 3px; word-break: break-word; overflow-wrap: anywhere; }
+  .fav-item .offline-tag { font-size: 11px; color: #1db954; margin-left: 4px; }
+
+  .fav-item .drag-handle {
+    display: none;
+    font-size: 20px;
+    color: #bbb;
+    padding: 4px 8px;
+    cursor: grab;
+    user-select: none;
+    flex-shrink: 0;
+    touch-action: none;
+    -webkit-user-select: none;
+  }
+  .fav-item .drag-handle:active { cursor: grabbing; }
+
+  /* ★ 新增：下载按钮 */
+  .fav-item .dl-btn {
+    background: #ff9800;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .fav-item .dl-btn:active { background: #e88a00; }
+  .fav-item .dl-btn:disabled { background: #ccc; cursor: default; }
+
+  .fav-inner.sorting .fav-item .dl-btn { display: none; }
+  .fav-inner.sorting .fav-item .drag-handle { display: flex; }
+  .fav-inner.sorting .fav-item .del-btn { display: none; }
+  .fav-inner.sorting .fav-item { background: transparent; }
+  .fav-inner.sorting .fav-item .swipe-content { transform: none !important; }
+
+  .fav-item.dragging {
+    opacity: .95;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .fav-item.dragging .swipe-content {
+    background: #fff;
+    box-shadow: 0 4px 16px rgba(0,0,0,.18);
+    transform: scale(1.02);
+  }
+
+  .player { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #eee; box-shadow: 0 -2px 12px rgba(0,0,0,.08); z-index: 100; padding-bottom: env(safe-area-inset-bottom); }
+  .progress-wrap { padding: 8px 14px 0; display: flex; align-items: center; gap: 8px; font-size: 11px; color: #999; }
+  .progress-wrap .time { flex-shrink: 0; min-width: 32px; text-align: center; }
+  .progress-bar { flex: 1; height: 4px; background: #e6e8ec; border-radius: 2px; position: relative; cursor: pointer; touch-action: none; }
+  .progress-bar .fill { height: 100%; width: 0%; background: #1db954; border-radius: 2px; transition: width .1s linear; }
+  .progress-bar .dot { position: absolute; top: 50%; left: 0%; width: 12px; height: 12px; background: #1db954; border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 1px 3px rgba(0,0,0,.2); pointer-events: none; }
+  .player-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px 12px; }
+  .player-info { flex: 1; min-width: 0; }
+  .player-info .title { font-size: 13px; font-weight: 600; line-height: 1.3; max-height: calc(1.3em * 2); overflow: hidden; word-break: break-word; overflow-wrap: anywhere; }
+  .player-info .sub { font-size: 11px; color: #888; line-height: 1.3; max-height: calc(1.3em * 1); overflow: hidden; margin-top: 2px; word-break: break-word; overflow-wrap: anywhere; }
+  .player-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .ctrl-btn { width: 38px; height: 38px; border: none; background: transparent; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #333; padding: 0; }
+  .ctrl-btn:active { background: #f0f2f5; }
+  .ctrl-btn.play { width: 44px; height: 44px; background: #1db954; color: #fff; box-shadow: 0 2px 6px rgba(29,185,84,.35); }
+  .ctrl-btn.play:active { background: #17a447; }
+  .ctrl-btn svg { display: block; }
+
+  .toast {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,.8);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    z-index: 500;
+    display: none;
+    pointer-events: none;
+    max-width: 90vw;
+    text-align: center;
+  }
+  .toast.show { display: block; }
+
+  .export-panel { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 400; display: none; align-items: center; justify-content: center; padding: 20px; }
+  .export-panel.open { display: flex; }
+  .export-inner { background: #fff; border-radius: 12px; width: 100%; max-width: 400px; max-height: 80vh; display: flex; flex-direction: column; padding: 12px; }
+  .export-inner h3 { margin: 4px 0 10px; font-size: 15px; }
+  .export-inner textarea { flex: 1; min-height: 240px; font-family: monospace; font-size: 12px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; resize: none; outline: none; }
+  .export-btns { display: flex; gap: 8px; margin-top: 10px; }
+  .export-btns button { flex: 1; padding: 10px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .export-btns .copy { background: #1db954; color: #fff; }
+  .export-btns .close { background: #eef1f4; color: #444; }
+
+  @media (max-width: 340px) {
+    .song .name { font-size: 12px; }
+    .song .artist, .song .album { font-size: 10px; }
+    .ctrl-btn { width: 34px; height: 34px; }
+    .ctrl-btn.play { width: 40px; height: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<h2>聚合音乐</h2>
+<div class="bar">
+  <input id="kw" placeholder="输入歌名，如：南山雪" autocomplete="off">
+  <button id="btn-search" onclick="doSearch()">搜索</button>
+  <button class="fav-btn" onclick="openFavorites()">⭐ <span id="fav-count">0</span></button>
+</div>
+
+<div class="columns">
+  <div class="col">
+    <div class="col-title tz">铜钟</div>
+    <div id="list-tz">
+      <div class="empty">输入歌名后点搜索</div>
+    </div>
+  </div>
+  <div class="col">
+    <div class="col-title in">IN音乐</div>
+    <div id="list-in">
+      <div class="empty">输入歌名后点搜索</div>
+    </div>
+  </div>
+</div>
+
+<div class="fav-panel" id="fav-panel">
+  <div class="fav-inner" id="fav-inner">
+    <div class="fav-header">
+      <span class="fav-title">
+        ⭐ 我的收藏
+        <button class="dir-btn" id="btn-dir" onclick="pickMusicDir()">选目录</button>
+        <button class="cache-btn" id="btn-cache" onclick="manualCacheAll()">缓存</button>
+        <button class="import-btn" id="btn-import" onclick="pickBatchImport()">导入</button>
+        <button class="clear-btn" id="btn-clear" onclick="clearCache()">清缓存</button>
+        <button class="export-btn" id="btn-export" onclick="openExport()">导出</button>
+        <button class="sort-btn" id="btn-sort" onclick="toggleSortMode()">排序</button>
+      </span>
+      <button class="close-btn" onclick="closeFavorites()">×</button>
+    </div>
+    <div id="fav-list"></div>
+  </div>
+</div>
+
+<div class="export-panel" id="export-panel">
+  <div class="export-inner">
+<h3>导出：id\t歌名\t歌手（粘贴到 /sdcard/ids.txt）</h3>
+    <textarea id="export-text" readonly></textarea>
+    <div class="export-btns">
+      <button class="copy" onclick="copyExport()">复制</button>
+      <button class="close" onclick="closeExport()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="player" id="player" style="display:none">
+  <div class="progress-wrap">
+    <span class="time" id="t-cur">0:00</span>
+    <div class="progress-bar" id="progress">
+      <div class="fill" id="progress-fill"></div>
+      <div class="dot" id="progress-dot"></div>
+    </div>
+    <span class="time" id="t-dur">0:00</span>
+  </div>
+  <div class="player-row">
+    <div class="player-info">
+      <div class="title" id="p-title"></div>
+      <div class="sub" id="p-sub"></div>
+    </div>
+    <div class="player-controls">
+      <button class="ctrl-btn" id="btn-prev" title="上一曲">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn play" id="btn-play" title="播放/暂停">
+        <svg id="icon-play" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+        <svg id="icon-pause" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none">
+          <path d="M6 5h4v14H6zM14 5h4v14h-4z"/>
+        </svg>
+      </button>
+      <button class="ctrl-btn" id="btn-next" title="下一曲">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<input type="file" id="batch-import-input" accept="audio/*,.mp3,.m4a,.flac,.wav,.ogg" multiple style="display:none">
+<audio id="audio"></audio>
+
+<script>
+// ============ 配置 ============
+const TONZHON_API = 'https://tonzhon.com/api.php';
+const PROXY = 'https://dy-r9r.pages.dev/proxy?url=';
+const MIN_DURATION = 60;
+const PREFETCH_CONCURRENCY = 2;
+const FAV_KEY = 'music_favorites_v1';
+const FAILED_KEY = 'music_failed_downloads_v1';
+const MIN_FILE_SIZE = 512;
+const CACHE_FETCH_TIMEOUT = 60000;
+
+let tzList = [];
+let inList = [];
+let tzPage = 0, inPage = 0;
+let tzMore = true, inMore = true;
+let keyword = '';
+let searching = false;
+let loadingMore = false;
+let playingIdx = null;
+let favPlayingIdx = null;
+let playToken = 0;
+let generation = 0;
+let sortMode = false;
+let cachingAll = false;
+
+let musicDirHandle = null;
+let pendingDirHandle = null;
+
+let activeDownload = null;
+
+let failedDownloads = new Set();
+
+const audio = document.getElementById('audio');
+const playerEl = document.getElementById('player');
+const btnSearch = document.getElementById('btn-search');
+const toastEl = document.getElementById('toast');
+
+const songCache = new Map();
+const songPending = new Map();
+
+let currentPlayingSong = null;
+let currentPlayingUrl = '';
+let currentBlobUrl = null;
+
+// ============ Toast ============
+let toastTimer = null;
+function showToast(msg, ms = 2000) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+}
+
+// ============ 失败标记 ============
+function loadFailed() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(FAILED_KEY) || '[]');
+    failedDownloads = new Set(Array.isArray(arr) ? arr : []);
+  } catch (e) { failedDownloads = new Set(); }
+}
+function saveFailed() {
+  try { localStorage.setItem(FAILED_KEY, JSON.stringify([...failedDownloads])); } catch (e) {}
+}
+function markFailed(fileName) {
+  failedDownloads.add(fileName);
+  saveFailed();
+}
+function unmarkFailed(fileName) {
+  if (failedDownloads.delete(fileName)) saveFailed();
+}
+function isFailed(fileName) {
+  return failedDownloads.has(fileName);
+}
+
+// ============ 文件名 ============
+function buildLocalFileName(f) {
+  let id = '';
+  if (f.source === 'tonzhon' && f.id) id = String(f.id);
+  else if (f.source === 'inmp3' && f.rid) id = 'inmp3-' + f.rid;
+  const name = (f.name || '').replace(/[\/\\:*?"<>|]/g, '').replace(/\s+/g, ' ').trim();
+  const artist = (f.artist || '').replace(/[\/\\:*?"<>|]/g, '').replace(/\s+/g, ' ').trim();
+  if (artist && name && artist !== name) return `${id}_${artist} - ${name}.mp3`;
+  if (name) return `${id}_${name}.mp3`;
+  return `${id}.mp3`;
+}
+
+// ============ 音频头检查 ============
+async function looksLikeAudio(blob) {
+  if (!blob || blob.size < MIN_FILE_SIZE) return false;
+  try {
+    const head = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+    if (head[0] === 0xFF && (head[1] & 0xE0) === 0xE0) return true;
+    if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) return true;
+    if (head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70) return true;
+    if (head[0] === 0x4F && head[1] === 0x67 && head[2] === 0x67 && head[3] === 0x53) return true;
+    if (head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46) return true;
+    if (head[0] === 0x66 && head[1] === 0x4C && head[2] === 0x61 && head[3] === 0x43) return true;
+    if (head[0] === 0xFF && (head[1] === 0xF1 || head[1] === 0xF9)) return true;
+  } catch (e) {}
+  return false;
+}
+
+// ============ 目录管理 ============
+async function pickMusicDir() {
+  if (!('showDirectoryPicker' in window)) {
+    alert('当前浏览器不支持目录选择（showDirectoryPicker）。\n\n请用 Android Chrome 122+ 或桌面版 Chrome/Edge。');
+    return;
+  }
+  try {
+    if (pendingDirHandle) {
+      try {
+        const perm = await pendingDirHandle.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          musicDirHandle = pendingDirHandle;
+          pendingDirHandle = null;
+          saveDirHandle();
+          showToast('已恢复音乐目录：' + musicDirHandle.name);
+          updateDirBtnState();
+          renderFavPanel();
+          updateAllOfflineBadges();
+          return;
+        }
+      } catch (e) { console.warn('恢复句柄失败', e); }
+    }
+
+    const h = await window.showDirectoryPicker({ mode: 'readwrite' });
+    musicDirHandle = h;
+    saveDirHandle();
+    showToast('音乐目录已设置：' + h.name);
+    updateDirBtnState();
+    renderFavPanel();
+    updateAllOfflineBadges();
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    console.warn('选目录失败', e);
+    showToast('选目录失败：' + (e && e.message ? e.message : e));
+  }
+}
+
+function saveDirHandle() {
+  try {
+    if (musicDirHandle) localStorage.setItem('last_dir_name', musicDirHandle.name);
+  } catch (e) {}
+}
+
+async function restoreMusicDir() {
+  try {
+    const lastName = localStorage.getItem('last_dir_name');
+    if (lastName) {
+      updateDirBtnState();
+      console.log('ℹ 上次选的目录：', lastName, '（需要用户点击「选目录」重新授权）');
+    }
+  } catch (e) {}
+}
+
+function updateDirBtnState() {
+  const btn = document.getElementById('btn-dir');
+  if (!btn) return;
+  if (musicDirHandle) {
+    btn.classList.add('connected');
+    btn.classList.remove('warn');
+    btn.textContent = '目录✓';
+    btn.title = '当前目录：' + musicDirHandle.name;
+  } else if (pendingDirHandle) {
+    btn.classList.remove('connected');
+    btn.classList.add('warn');
+    btn.textContent = '点我恢复';
+    btn.title = '点击恢复目录权限';
+  } else {
+    btn.classList.remove('connected');
+    btn.classList.remove('warn');
+    btn.textContent = '选目录';
+    btn.title = '设置音乐目录（/sdcard/Download/聚合音乐）';
+  }
+}
+
+// ============ 文件读写 ============
+async function writeFileToDir(fileName, blob) {
+  if (!musicDirHandle) return false;
+  try {
+    const fh = await musicDirHandle.getFileHandle(fileName, { create: true });
+    const w = await fh.createWritable();
+    await w.write(blob);
+    await w.close();
+    console.log('💾 已写入：', fileName, (blob.size/1024/1024).toFixed(2) + 'MB');
+    return true;
+  } catch (e) {
+    console.warn('写入失败', fileName, e);
+    return false;
+  }
+}
+
+async function getFileFromDir(fileName) {
+  if (!musicDirHandle) return null;
+  try {
+    const fh = await musicDirHandle.getFileHandle(fileName);
+    const file = await fh.getFile();
+    if (file.size >= MIN_FILE_SIZE) return file;
+  } catch (e) {}
+  return null;
+}
+
+async function deleteFileFromDir(fileName) {
+  if (!musicDirHandle) return false;
+  try {
+    await musicDirHandle.removeEntry(fileName);
+    console.log('🗑 已删除：', fileName);
+    return true;
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') return true;
+    console.warn('删除失败', fileName, e);
+    return false;
+  }
+}
+
+async function resolveLocalFile(song) {
+  if (!musicDirHandle) return null;
+  const fileName = buildLocalFileName(song);
+  const file = await getFileFromDir(fileName);
+  if (file) {
+    console.log('📂 命中本地：', fileName);
+    return { file, fileName };
+  }
+  return null;
+}
+
+// ============ 在线 URL ============
+async function resolveOnlineUrl(song) {
+  if (song.source === 'tonzhon') {
+    let url = song.playUrl;
+    if (!url && song.id) url = `https://music.163.com/song/media/outer/url?id=${song.id}.mp3`;
+    return url || '';
+  }
+  if (song.source === 'inmp3' && song.rid) {
+    try {
+      const data = await inmp3GetSongFresh(song.rid);
+      return data.audioSrc || '';
+    } catch (e) {
+      return '';
+    }
+  }
+  return '';
+}
+
+// ============ 下载 ============
+async function downloadToCache(song, url, cardEl) {
+  if (!musicDirHandle || !url) return false;
+
+  const fileName = buildLocalFileName(song);
+
+  const existing = await getFileFromDir(fileName);
+  if (existing) {
+    unmarkFailed(fileName);
+    if (cardEl) {
+      cardEl.classList.remove('downloading', 'failed');
+      cardEl.classList.add('offline');
+    }
+    return true;
+  }
+
+  if (isFailed(fileName)) {
+    if (cardEl) {
+      cardEl.classList.remove('downloading');
+      cardEl.classList.add('failed');
+    }
+    console.log('⏭ 跳过已失败的下载：', fileName);
+    return false;
+  }
+
+  if (cardEl) {
+    cardEl.classList.remove('offline', 'failed');
+    cardEl.classList.add('downloading');
+  }
+
+  if (activeDownload) {
+    try { activeDownload.abort(); } catch (e) {}
+    activeDownload = null;
+  }
+  const controller = new AbortController();
+  activeDownload = controller;
+
+  try {
+    let blob = null;
+
+    try {
+      const timer = setTimeout(() => controller.abort(), CACHE_FETCH_TIMEOUT);
+      const resp = await fetch(url, { signal: controller.signal, redirect: 'follow' });
+      clearTimeout(timer);
+      if (resp.ok) {
+        const ct = (resp.headers.get('content-type') || '').toLowerCase();
+        if (!ct.includes('text/html') && !ct.includes('application/json')) {
+          const b = await resp.blob();
+          if (b && b.size >= MIN_FILE_SIZE && await looksLikeAudio(b)) {
+            blob = b;
+            console.log(`[direct] ✅ ${song.name} ${(b.size/1024).toFixed(0)}KB`);
+          }
+        }
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') { console.log('下载已取消', song.name); return false; }
+      console.warn(`[direct] ❌ ${song.name}`, e.message || e);
+    }
+
+    if (!blob) {
+      try {
+        const timer = setTimeout(() => controller.abort(), CACHE_FETCH_TIMEOUT);
+        const referer = song.source === 'inmp3' ? 'https://inmp3.com/' : 'https://music.163.com/';
+        const resp = await fetch(PROXY + encodeURIComponent(url), {
+          signal: controller.signal,
+          headers: { 'x-target-referer': referer, 'x-target-accept': '*/*' },
+          redirect: 'follow',
+        });
+        clearTimeout(timer);
+        if (resp.ok) {
+          const b = await resp.blob();
+          if (b && b.size >= MIN_FILE_SIZE && await looksLikeAudio(b)) {
+            blob = b;
+            console.log(`[proxy] ✅ ${song.name} ${(b.size/1024).toFixed(0)}KB`);
+          }
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') { console.log('下载已取消(proxy)', song.name); return false; }
+        console.warn(`[proxy] ❌ ${song.name}`, e.message || e);
+      }
+    }
+
+    if (!blob) {
+      markFailed(fileName);
+      if (cardEl) {
+        cardEl.classList.remove('downloading');
+        cardEl.classList.add('failed');
+      }
+      console.warn('❌ 下载失败并已标记：', fileName);
+      return false;
+    }
+
+    const ok = await writeFileToDir(fileName, blob);
+    if (cardEl) {
+      cardEl.classList.remove('downloading');
+      if (ok) {
+        cardEl.classList.add('offline');
+        unmarkFailed(fileName);
+      } else {
+        markFailed(fileName);
+        cardEl.classList.add('failed');
+      }
+    } else if (ok) {
+      unmarkFailed(fileName);
+    } else {
+      markFailed(fileName);
+    }
+    if (activeDownload === controller) activeDownload = null;
+    return ok;
+  } catch (e) {
+    if (e.name !== 'AbortError') {
+      console.warn('下载异常', song.name, e);
+      markFailed(fileName);
+    }
+    if (cardEl) {
+      cardEl.classList.remove('downloading');
+      if (e.name !== 'AbortError') cardEl.classList.add('failed');
+    }
+    if (activeDownload === controller) activeDownload = null;
+    return false;
+  }
+}
+
+// ============ 收藏 ============
+function favKeyOf(s) {
+  return `${s.source}:${s.id || s.rid}`;
+}
+
+let favList = [];
+let favKeys = new Set();
+
+function loadFavorites() {
+  try {
+    favList = JSON.parse(localStorage.getItem(FAV_KEY) || '[]');
+    if (!Array.isArray(favList)) favList = [];
+  } catch (e) { favList = []; }
+  favKeys = new Set(favList.map(favKeyOf));
+  updateFavCount();
+}
+function saveFavorites() {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(favList)); } catch (e) {}
+  updateFavCount();
+}
+function updateFavCount() {
+  const el = document.getElementById('fav-count');
+  if (el) el.textContent = favList.length;
+}
+
+async function toggleFavorite(s) {
+  const key = favKeyOf(s);
+  if (favKeys.has(key)) {
+    favList = favList.filter(f => favKeyOf(f) !== key);
+    favKeys.delete(key);
+    saveFavorites();
+    refreshFavStars();
+    const fileName = buildLocalFileName(s);
+    await deleteFileFromDir(fileName);
+    unmarkFailed(fileName);
+    showToast(`🗑 已取消收藏：${s.name}`, 2000);
+    if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+    await markCardBadge(s);
+  } else {
+    favList.unshift({
+      source: s.source, id: s.id, rid: s.rid,
+      name: s.name, artist: s.artist, album: s.album,
+      playUrl: s.playUrl || ''
+    });
+    favKeys.add(key);
+    saveFavorites();
+    refreshFavStars();
+    const fileName = buildLocalFileName(s);
+    const existing = await getFileFromDir(fileName);
+    if (existing) {
+      showToast(`📥 已收藏：${s.name}`, 2000);
+      if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+      await markCardBadge(s);
+    } else if (isFailed(fileName)) {
+      showToast(`⚠ 之前下载失败过，跳过：${s.name}`, 2500);
+      if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+      await markCardBadge(s);
+    } else {
+      showToast(`⬇ 正在收藏并下载：${s.name}`, 2000);
+      const url = await resolveOnlineUrl(s);
+      if (url) {
+        downloadToCache(s, url, null).then(ok => {
+          if (ok) showToast(`📥 已收藏：${s.name}`, 2000);
+          if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+          markCardBadge(s);
+        });
+      } else {
+        showToast('获取播放地址失败', 3000);
+      }
+    }
+  }
+}
+
+// ★ 新增：收藏面板「下载」按钮调用
+async function manualDownloadFavorite(index) {
+  const f = favList[index];
+  if (!f) return;
+
+  const fileName = buildLocalFileName(f);
+
+  // 已存在 → 直接完成
+  const existing = await getFileFromDir(fileName);
+  if (existing) {
+    showToast(`📥 已存在：${f.name}`, 2000);
+    renderFavPanel();
+    return;
+  }
+
+  // ★ 清掉失败标记，允许重试
+  unmarkFailed(fileName);
+
+  showToast(`⬇ 重新下载：${f.name}`, 2000);
+  const url = await resolveOnlineUrl(f);
+  if (!url) { showToast('获取播放地址失败', 3000); return; }
+
+  const ok = await downloadToCache(f, url, null);
+  if (ok) showToast(`📥 已下载：${f.name}`, 2000);
+  else showToast(`❌ 下载失败：${f.name}`, 3000);
+
+  renderFavPanel();
+  await markCardBadge(f);
+}
+
+async function markCardBadge(song) {
+  const fileName = buildLocalFileName(song);
+  const key = favKeyOf(song);
+  const existing = await getFileFromDir(fileName);
+  const failed = isFailed(fileName);
+  document.querySelectorAll('.song').forEach(el => {
+    if (el.dataset.favKey === key) {
+      el.classList.toggle('offline', !!existing);
+      el.classList.toggle('failed', !existing && failed);
+      el.classList.remove('downloading');
+    }
+  });
+}
+
+function refreshFavStars() {
+  document.querySelectorAll('.song').forEach(el => {
+    const k = el.dataset.favKey;
+    if (!k) return;
+    const star = el.querySelector('.fav-toggle');
+    if (star) star.classList.toggle('active', favKeys.has(k));
+  });
+}
+
+function openFavorites() {
+  document.getElementById('fav-panel').classList.add('open');
+  renderFavPanel();
+}
+function closeFavorites() {
+  document.getElementById('fav-panel').classList.remove('open');
+}
+
+// ============ 导出 ============
+function openExport() {
+  if (!favList.length) { showToast('收藏为空'); return; }
+  const lines = favList.map(f => {
+    const name = (f.name || '').replace(/[\t\r\n]/g, ' ').trim();
+    const artist = (f.artist || '').replace(/[\t\r\n]/g, ' ').trim();
+    if (f.source === 'tonzhon' && f.id) return `${f.id}\t${name}\t${artist}`;
+    if (f.source === 'inmp3' && f.rid) return `inmp3:${f.rid}\t${name}\t${artist}`;
+    return null;
+  }).filter(Boolean);
+  document.getElementById('export-text').value = lines.join('\n');
+  document.getElementById('export-panel').classList.add('open');
+}
+function closeExport() { document.getElementById('export-panel').classList.remove('open'); }
+function copyExport() {
+  const ta = document.getElementById('export-text');
+  ta.select(); ta.setSelectionRange(0, 999999);
+  try { document.execCommand('copy'); showToast('已复制到剪贴板'); }
+  catch (e) {
+    if (navigator.clipboard) navigator.clipboard.writeText(ta.value).then(() => showToast('已复制到剪贴板')).catch(() => showToast('复制失败'));
+    else showToast('复制失败');
+  }
+}
+
+function toggleSortMode() {
+  sortMode = !sortMode;
+  document.getElementById('fav-inner').classList.toggle('sorting', sortMode);
+  document.getElementById('btn-sort').classList.toggle('active', sortMode);
+  document.getElementById('btn-sort').textContent = sortMode ? '完成' : '排序';
+  renderFavPanel();
+}
+
+// ============ 清缓存 ============
+async function clearCache() {
+  if (!musicDirHandle) { showToast('请先选目录'); return; }
+
+  const protectedNames = new Set(favList.map(f => buildLocalFileName(f)));
+
+  const files = [];
+  try {
+    for await (const entry of musicDirHandle.values()) {
+      if (entry.kind === 'file' && entry.name.toLowerCase().endsWith('.mp3')) {
+        files.push(entry.name);
+      }
+    }
+  } catch (e) { console.warn('列目录失败', e); }
+
+  const toDelete = files.filter(name => !protectedNames.has(name));
+  if (!toDelete.length) {
+    showToast(protectedNames.size
+      ? `没有可清缓存（收藏 ${protectedNames.size} 首已保留）`
+      : '没有可清缓存');
+    return;
+  }
+
+  const msg = protectedNames.size
+    ? `确定清空目录里 ${toDelete.length} 首【非收藏】音频？\n\n（收藏 ${protectedNames.size} 首会保留；同时会清除下载失败标记）`
+    : `确定清空目录里 ${toDelete.length} 首音频？\n\n（同时会清除下载失败标记）`;
+  if (!confirm(msg)) return;
+
+  let removed = 0;
+  for (const name of toDelete) {
+    if (await deleteFileFromDir(name)) removed++;
+  }
+  failedDownloads.clear();
+  saveFailed();
+
+  showToast(`已清空 ${removed} 首非收藏缓存${protectedNames.size ? `（保留 ${protectedNames.size} 首收藏）` : ''}`);
+  await updateAllOfflineBadges();
+  if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+}
+
+// ============ 批量导入 ============
+function pickBatchImport() {
+  if (!musicDirHandle) { showToast('请先选目录'); return; }
+  if (!favList.length) { showToast('收藏为空'); return; }
+  const input = document.getElementById('batch-import-input');
+  input.value = '';
+  input.onchange = async () => {
+    const files = input.files;
+    if (!files || !files.length) return;
+    await batchImportFiles(files);
+    input.value = '';
+    input.onchange = null;
+  };
+  input.click();
+}
+
+async function batchImportFiles(fileList) {
+  const idToSong = new Map();
+  for (const f of favList) {
+    if (f.source === 'tonzhon' && f.id) idToSong.set(String(f.id), f);
+    if (f.source === 'inmp3' && f.rid) idToSong.set('inmp3-' + f.rid, f);
+  }
+  const total = fileList.length;
+  let ok = 0, skip = 0, fail = 0;
+  showToast(`开始导入 ${total} 个文件…`, 3000);
+  for (let i = 0; i < total; i++) {
+    const file = fileList[i];
+    const baseName = file.name.replace(/\.[^.]+$/, '');
+    let id = null;
+    let m = baseName.match(/^(\d+)_/);
+    if (m) id = m[1];
+    else {
+      m = baseName.match(/^(inmp3[-:]\d+)_/i);
+      if (m) id = m[1].replace(':', '-');
+      else {
+        m = baseName.match(/^(inmp3[-:]\d+)$/i);
+        if (m) id = m[1].replace(':', '-');
+        else {
+          m = baseName.match(/^(\d+)$/);
+          if (m) id = m[1];
+        }
+      }
+    }
+    if (!id) { fail++; continue; }
+    const song = idToSong.get(id);
+    if (!song) { skip++; continue; }
+    if (file.size < MIN_FILE_SIZE || !await looksLikeAudio(file)) { fail++; continue; }
+    const fileName = buildLocalFileName(song);
+    if (await writeFileToDir(fileName, file)) {
+      unmarkFailed(fileName);
+      ok++;
+    } else {
+      fail++;
+    }
+    if ((i + 1) % 5 === 0) showToast(`导入中 ${i + 1}/${total}`, 800);
+  }
+  showToast(`导入完成：成功 ${ok}/${total}${skip ? `，跳过 ${skip}` : ''}${fail ? `，失败 ${fail}` : ''}`, 4000);
+  await updateAllOfflineBadges();
+  if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+}
+
+// ============ 手动缓存全部 ============
+async function manualCacheAll() {
+  if (cachingAll) { showToast('已经在缓存中…'); return; }
+  if (!favList.length) { showToast('没有收藏'); return; }
+  if (!musicDirHandle) { showToast('请先选目录'); return; }
+
+  cachingAll = true;
+  const btn = document.getElementById('btn-cache');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add('busy');
+  btn.textContent = '缓存中…';
+
+  try {
+    let done = 0, ok = 0, skipped = 0;
+    for (const f of favList) {
+      const fileName = buildLocalFileName(f);
+      const existing = await getFileFromDir(fileName);
+      if (existing) { done++; ok++; continue; }
+      if (isFailed(fileName)) { done++; skipped++; continue; }
+      const url = await resolveOnlineUrl(f);
+      let r = false;
+      if (url) r = await downloadToCache(f, url, null);
+      if (r) ok++;
+      done++;
+      btn.textContent = `缓存中 ${done}/${favList.length}`;
+      showToast(`缓存中 ${done}/${favList.length}（成功 ${ok}）`, 1000);
+    }
+    const extra = skipped ? `，跳过 ${skipped} 个失败标记` : '';
+    showToast(`缓存完成：成功 ${ok}/${favList.length}${extra}`, 3000);
+    await updateAllOfflineBadges();
+    renderFavPanel();
+  } finally {
+    cachingAll = false;
+    btn.disabled = false;
+    btn.classList.remove('busy');
+    btn.textContent = oldText;
+  }
+}
+
+// ============ 更新卡片图标 ============
+async function updateAllOfflineBadges() {
+  const songs = document.querySelectorAll('.song');
+  for (const el of songs) {
+    const key = el.dataset.favKey;
+    if (!key) continue;
+    let song = null;
+    if (el.dataset.rid) {
+      song = inList.find(s => `inmp3:${s.rid}` === key);
+    } else {
+      const id = key.split(':')[1];
+      song = tzList.find(s => String(s.id) === id);
+    }
+    if (!song) continue;
+    const fileName = buildLocalFileName(song);
+    const existing = await getFileFromDir(fileName);
+    const failed = !existing && isFailed(fileName);
+    el.classList.toggle('offline', !!existing);
+    el.classList.toggle('failed', failed);
+    el.classList.remove('downloading');
+  }
+}
+
+// ============ 收藏面板渲染 ============
+async function renderFavPanel() {
+  const box = document.getElementById('fav-list');
+  box.innerHTML = '';
+  if (!favList.length) {
+    box.innerHTML = '<div class="empty">还没有收藏，点歌曲卡片右上角的★收藏</div>';
+    return;
+  }
+
+  let fileSet = null;
+  if (musicDirHandle) {
+    fileSet = new Set();
+    try {
+      for await (const entry of musicDirHandle.values()) {
+        if (entry.kind === 'file') fileSet.add(entry.name);
+      }
+    } catch (e) {}
+  }
+
+  favList.forEach((f, i) => {
+    const fileName = buildLocalFileName(f);
+    const offline = fileSet && fileSet.has(fileName);
+    const failed = !offline && isFailed(fileName);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'fav-item';
+    wrap.dataset.index = i;
+    if (favPlayingIdx && favPlayingIdx.index === i) wrap.classList.add('playing-item');
+
+    // ★ 结构改动：去掉左边的 ▶，改成点击 info 区域播放
+    // ★ 未下载的歌加一个「下载」按钮
+    const showDlBtn = !offline;
+    wrap.innerHTML = `
+      <button class="del-btn">删除</button>
+      <div class="swipe-content">
+        <div class="drag-handle" title="拖动排序">≡</div>
+        <div class="info">
+          <div class="name">${escapeHtml(f.name)}${offline ? ' <span class="offline-tag">📥</span>' : (failed ? ' <span class="offline-tag" style="color:#e53935">❌</span>' : '')}</div>
+          <div class="artist">${escapeHtml(f.artist)}${f.album ? ' · ' + escapeHtml(f.album) : ''}</div>
+        </div>
+        ${showDlBtn ? '<button class="dl-btn" title="下载">下载</button>' : ''}
+      </div>
+    `;
+
+    const swipeContent = wrap.querySelector('.swipe-content');
+    const info = wrap.querySelector('.info');
+    const delBtn = wrap.querySelector('.del-btn');
+    const handle = wrap.querySelector('.drag-handle');
+    const dlBtn = wrap.querySelector('.dl-btn');
+
+    // ★ 点击 info 播放，但用 tap 判定（移动超过阈值就取消）
+    if (info) attachTap(info, () => {
+      if (sortMode) return;
+      playFavorite(i);
+    });
+
+    // ★ 下载按钮
+    if (dlBtn) {
+      dlBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (sortMode) return;
+        manualDownloadFavorite(i);
+      };
+    }
+
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      const item = favList[i];
+      if (!item) return;
+      toggleFavorite(item);
+    };
+    if (!sortMode) setupSwipe(wrap, swipeContent);
+    if (sortMode) setupDrag(wrap, handle, i);
+    box.appendChild(wrap);
+  });
+}
+
+// ★ 新增：区分点击和滑动
+//   - pointerdown 记位置
+//   - pointermove 超过 8px 就判定为滑动，标记 cancelled
+//   - pointerup 时如果没 cancelled 就触发 tap
+function attachTap(el, onTap) {
+  let startX = 0, startY = 0, cancelled = false, moved = false;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    startX = e.clientX; startY = e.clientY;
+    cancelled = false; moved = false;
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (cancelled) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
+      cancelled = true;
+    }
+  });
+  el.addEventListener('pointerup', (e) => {
+    if (cancelled) { cancelled = false; return; }
+    onTap();
+  });
+  el.addEventListener('pointercancel', () => { cancelled = true; });
+}
+
+function setupSwipe(wrap, content) {
+  let startX = 0, startY = 0, deltaX = 0, dragging = false, decided = false;
+  content.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    startX = e.clientX; startY = e.clientY;
+    deltaX = 0; dragging = true; decided = false;
+  });
+  content.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (!decided) {
+      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+      if (Math.abs(dy) > Math.abs(dx)) { dragging = false; return; }
+      decided = true;
+      content.setPointerCapture?.(e.pointerId);
+    }
+    deltaX = Math.max(-72, Math.min(0, dx));
+    content.style.transition = 'none';
+    content.style.transform = `translateX(${deltaX}px)`;
+    e.preventDefault();
+  });
+  const end = () => {
+    if (!dragging) return;
+    dragging = false;
+    if (!decided) return;
+    content.style.transition = '';
+    content.style.transform = '';
+    const opened = deltaX < -36;
+    wrap.classList.toggle('swiped', opened);
+  };
+  content.addEventListener('pointerup', end);
+  content.addEventListener('pointercancel', end);
+  content.addEventListener('pointerleave', () => { if (dragging) end(); });
+}
+
+function setupDrag(wrap, handle, index) {
+  const favInner = document.getElementById('fav-inner');
+  const listBox = document.getElementById('fav-list');
+  handle.addEventListener('pointerdown', (e) => {
+    e.stopPropagation(); e.preventDefault();
+    const startY = e.clientY;
+    let dragging = false;
+    let currentIndex = index;
+    const onMove = (ev) => {
+      const dy = Math.abs(ev.clientY - startY);
+      if (!dragging && dy > 6) {
+        dragging = true;
+        wrap.classList.add('dragging');
+        favInner.classList.add('dragging-active');
+      }
+      if (!dragging) return;
+      const innerRect = favInner.getBoundingClientRect();
+      const edge = 60;
+      let scrollDelta = 0;
+      if (ev.clientY < innerRect.top + edge) scrollDelta = -12;
+      else if (ev.clientY > innerRect.bottom - edge) scrollDelta = 12;
+      if (scrollDelta) favInner.scrollTop += scrollDelta;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const target = el && el.closest('.fav-item');
+      if (!target || target === wrap) return;
+      const targetIdx = parseInt(target.dataset.index, 10);
+      if (isNaN(targetIdx) || targetIdx === currentIndex) return;
+      const rect = target.getBoundingClientRect();
+      const inTopHalf = ev.clientY < rect.top + rect.height / 2;
+      const [moved] = favList.splice(currentIndex, 1);
+      let insertAt = targetIdx;
+      if (!inTopHalf) insertAt = targetIdx + 1;
+      if (currentIndex < insertAt) insertAt--;
+      favList.splice(insertAt, 0, moved);
+      currentIndex = insertAt;
+      if (inTopHalf) listBox.insertBefore(wrap, target);
+      else listBox.insertBefore(wrap, target.nextSibling);
+      Array.from(listBox.querySelectorAll('.fav-item')).forEach((el, i) => { el.dataset.index = i; });
+    };
+    const onUp = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      wrap.classList.remove('dragging');
+      favInner.classList.remove('dragging-active');
+      if (!dragging) return;
+      if (favPlayingIdx && favList[favPlayingIdx.index]) {
+        const playingKey = favKeyOf(favList[favPlayingIdx.index]);
+        const newIdx = favList.findIndex(x => favKeyOf(x) === playingKey);
+        if (newIdx >= 0) favPlayingIdx.index = newIdx;
+      }
+      saveFavorites();
+      renderFavPanel();
+    };
+    document.addEventListener('pointermove', onMove, { passive: false });
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('pointercancel', onUp);
+  });
+}
+
+// ============ 播放 ============
+async function playLocalFile(file, myToken) {
+  const blobUrl = URL.createObjectURL(file);
+  if (currentBlobUrl) {
+    const old = currentBlobUrl;
+    setTimeout(() => { try { URL.revokeObjectURL(old); } catch (e) {} }, 500);
+  }
+  currentBlobUrl = blobUrl;
+  audio.onloadedmetadata = null;
+  audio.onerror = null;
+  audio.removeAttribute('src');
+  audio.src = blobUrl;
+  return await new Promise((resolve) => {
+    let settled = false;
+    audio.onerror = () => {
+      if (settled) return;
+      settled = true;
+      if (myToken !== playToken) { resolve(false); return; }
+      try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+      if (currentBlobUrl === blobUrl) currentBlobUrl = null;
+      audio.onerror = null;
+      audio.removeAttribute('src');
+      resolve(false);
+    };
+    audio.onloadedmetadata = () => {
+      if (settled) return;
+      settled = true;
+      if (myToken !== playToken) { resolve(false); return; }
+      audio.play().then(() => { updatePlayIcon(true); resolve(true); }).catch(() => resolve(false));
+    };
+  });
+}
+
+async function play(source, i) {
+  const list = source === 'tonzhon' ? tzList : inList;
+  const s = list[i];
+  if (!s) return;
+
+  const myToken = ++playToken;
+
+  if (activeDownload) {
+    try { activeDownload.abort(); } catch (e) {}
+    activeDownload = null;
+  }
+
+  playingIdx = { source, index: i };
+  favPlayingIdx = null;
+  setNavDisabled(false, false);
+  updateNavButtonsByList();
+
+  document.querySelectorAll('.song').forEach(x => x.classList.remove('playing'));
+  const colId = source === 'tonzhon' ? 'list-tz' : 'list-in';
+  const cards = document.getElementById(colId).querySelectorAll('.song');
+  const cardEl = cards[i] || null;
+  if (cardEl) cardEl.classList.add('playing');
+
+  playerEl.style.display = 'block';
+  document.getElementById('p-title').textContent = s.name;
+  document.getElementById('p-sub').textContent = s.artist + (s.album ? ' · ' + s.album : '');
+
+  audio.onloadedmetadata = null;
+  audio.onerror = null;
+  audio.removeAttribute('src');
+  updatePlayIcon(false);
+  setProgress(0, 0);
+
+  const local = await resolveLocalFile(s);
+  if (local) {
+    if (myToken !== playToken) return;
+    const ok = await playLocalFile(local.file, myToken);
+    if (myToken !== playToken) return;
+    if (ok) {
+      if (cardEl) {
+        cardEl.classList.remove('downloading', 'failed');
+        cardEl.classList.add('offline');
+      }
+      currentPlayingSong = s;
+      currentPlayingUrl = '';
+      return;
+    }
+  }
+
+  document.getElementById('p-sub').textContent = '⏳ 获取播放地址...';
+  let onlineUrl = '';
+  if (source === 'tonzhon') {
+    onlineUrl = s.playUrl;
+  } else {
+    try {
+      const data = await inmp3GetSongFresh(s.rid);
+      if (myToken !== playToken) return;
+      onlineUrl = data.audioSrc || '';
+    } catch (e) {
+      if (myToken !== playToken) return;
+      alert('获取播放地址失败：' + e.message);
+      return;
+    }
+  }
+  if (!onlineUrl) { alert('没有可播放地址'); return; }
+  if (myToken !== playToken) return;
+
+  currentPlayingSong = s;
+  currentPlayingUrl = onlineUrl;
+  document.getElementById('p-sub').textContent = s.artist + (s.album ? ' · ' + s.album : '');
+
+  audio.src = onlineUrl;
+  audio.onloadedmetadata = () => {
+    if (myToken !== playToken) return;
+    if (source === 'tonzhon' && audio.duration && audio.duration < MIN_DURATION) {
+      const idx = tzList.findIndex(x => x.id === s.id);
+      if (idx >= 0) tzList.splice(idx, 1);
+      playingIdx = null;
+      renderColumn('list-tz', tzList, 'tonzhon');
+      if (!tzList.length) { playerEl.style.display = 'none'; stopAudio(); return; }
+      const nextIdx = idx < tzList.length ? idx : tzList.length - 1;
+      play('tonzhon', nextIdx);
+      return;
+    }
+    audio.play().then(() => updatePlayIcon(true)).catch(() => alert('这首歌播放不了'));
+  };
+  audio.onerror = () => { if (myToken === playToken) alert('这首歌加载失败'); };
+
+  downloadToCache(s, onlineUrl, cardEl).catch(e => {
+    if (e.name !== 'AbortError') console.warn('下载失败', e);
+  });
+}
+
+async function playFavorite(index) {
+  const f = favList[index];
+  if (!f) return;
+
+  const myToken = ++playToken;
+
+  if (activeDownload) {
+    try { activeDownload.abort(); } catch (e) {}
+    activeDownload = null;
+  }
+
+  favPlayingIdx = { index };
+  playingIdx = null;
+  updateFavNavButtons();
+
+  document.querySelectorAll('.song').forEach(x => x.classList.remove('playing'));
+  playerEl.style.display = 'block';
+  document.getElementById('p-title').textContent = f.name;
+  document.getElementById('p-sub').textContent = f.artist + (f.album ? ' · ' + f.album : '');
+
+  audio.onloadedmetadata = null;
+  audio.onerror = null;
+  audio.removeAttribute('src');
+  updatePlayIcon(false);
+  setProgress(0, 0);
+
+  const local = await resolveLocalFile(f);
+  if (local) {
+    if (myToken !== playToken) return;
+    const ok = await playLocalFile(local.file, myToken);
+    if (myToken !== playToken) return;
+    if (ok) { currentPlayingSong = f; currentPlayingUrl = ''; return; }
+  }
+
+  document.getElementById('p-sub').textContent = '⏳ 获取播放地址...';
+  let onlineUrl = await resolveOnlineUrl(f);
+  if (myToken !== playToken) return;
+  if (!onlineUrl) { alert('没有可播放地址'); return; }
+  currentPlayingSong = f;
+  currentPlayingUrl = onlineUrl;
+  document.getElementById('p-sub').textContent = f.artist + (f.album ? ' · ' + f.album : '');
+  audio.src = onlineUrl;
+  audio.onloadedmetadata = () => {
+    if (myToken !== playToken) return;
+    audio.play().then(() => updatePlayIcon(true)).catch(() => alert('播放失败'));
+  };
+  audio.onerror = () => { if (myToken === playToken) alert('加载失败'); };
+}
+
+function updateFavNavButtons() {
+  if (!favPlayingIdx) return;
+  const i = favPlayingIdx.index;
+  const hasPrev = i > 0;
+  const hasNext = i < favList.length - 1;
+  setNavDisabled(!hasPrev, !hasNext);
+}
+
+// ============ 代理 ============
+async function proxyFetch(targetUrl, extraHeaders = {}) {
+  const url = PROXY + encodeURIComponent(targetUrl);
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(extraHeaders)) {
+    const kl = k.toLowerCase();
+    if (kl === 'referer') headers.set('x-target-referer', v);
+    else if (kl === 'accept') headers.set('x-target-accept', v);
+    else if (kl === 'cookie') headers.set('x-target-cookie', v);
+    else headers.set(k, v);
+  }
+  const r = await fetch(url, { headers });
+  if (!r.ok) throw new Error('代理 ' + r.status);
+  return r.text();
+}
+
+// ============ JSONP / 搜索 ============
+let cbSeq = 0;
+function jsonp(params) {
+  return new Promise((resolve, reject) => {
+    const cb = 'cb_' + (++cbSeq) + '_' + Date.now();
+    window[cb] = (data) => { resolve(data); delete window[cb]; script.remove(); };
+    params.callback = cb;
+    const query = Object.keys(params)
+      .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+    const script = document.createElement('script');
+    script.src = TONZHON_API + '?' + query;
+    script.onerror = () => { reject(new Error('网络错误')); delete window[cb]; script.remove(); };
+    document.body.appendChild(script);
+    setTimeout(() => reject(new Error('超时')), 10000);
+  });
+}
+
+async function inmp3Search(kw, page = 1) {
+  const target = `https://inmp3.com/so/${encodeURIComponent(kw)}/${page}/`;
+  const html = await proxyFetch(target, { Referer: 'https://inmp3.com/', Accept: 'text/html,application/xhtml+xml' });
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const items = doc.querySelectorAll('.result-item');
+  const out = [];
+  items.forEach(el => {
+    out.push({
+      rid: el.getAttribute('data-rid'),
+      title: el.querySelector('.result-title')?.textContent.trim() || '',
+      artist: el.querySelector('.result-artist')?.textContent.trim() || '',
+      album: (el.querySelector('.result-album')?.textContent || '').replace('专辑:', '').trim()
+    });
+  });
+  const totalEl = doc.querySelector('#total-pages');
+  const totalPages = totalEl ? parseInt(totalEl.textContent) : 1;
+  return { list: out, totalPages };
+}
+
+async function inmp3GetSongFresh(rid) {
+  try {
+    const target = `https://inmp3.com/song/${rid}/`;
+    const html = await proxyFetch(target, {
+      Referer: 'https://inmp3.com/',
+      Accept: 'text/html,application/xhtml+xml'
+    });
+    const m = html.match(/let\s+code\s*=\s*"([^"]+)"/);
+    let audioSrc = '';
+    if (m) { try { audioSrc = atob(m[1]); } catch (e) {} }
+    return { audioSrc };
+  } catch (e) {
+    return { audioSrc: '' };
+  }
+}
+
+async function loadTonzhon(page) {
+  try {
+    const data = await jsonp({ types: 'search', count: 10, source: 'netease', pages: page, name: keyword });
+    if (!data || !Array.isArray(data)) return [];
+    return data
+      .filter(s => !/铃声|片段|30秒|试听|伴奏/.test(s.name))
+      .map(s => ({
+        source: 'tonzhon', id: s.id, name: s.name,
+        artist: (s.artist || []).map(a => a[0]).join(', '),
+        album: s.album || '',
+        playUrl: `https://music.163.com/song/media/outer/url?id=${s.id}.mp3`
+      }));
+  } catch (e) {
+    console.warn('铜钟失败', e);
+    return [];
+  }
+}
+
+async function loadInmp3(page) {
+  try {
+    const data = await inmp3Search(keyword, page);
+    return data.list.map(s => ({
+      source: 'inmp3', rid: s.rid,
+      name: s.title, artist: s.artist, album: s.album
+    }));
+  } catch (e) {
+    console.warn('IN音乐失败', e);
+    return [];
+  }
+}
+
+// ============ 搜索/渲染 ============
+function doSearch() {
+  if (searching || loadingMore) return;
+  const name = document.getElementById('kw').value.trim();
+  if (!name) { alert('请输入歌名'); return; }
+
+  generation++;
+  keyword = name;
+  tzList = []; inList = [];
+  tzPage = 0; inPage = 0;
+  tzMore = true; inMore = true;
+  songCache.clear();
+  songPending.clear();
+
+  playingIdx = null;
+  favPlayingIdx = null;
+  setNavDisabled(true, true);
+
+  document.getElementById('list-tz').innerHTML = '<div class="empty">加载中...</div>';
+  document.getElementById('list-in').innerHTML = '<div class="empty">加载中...</div>';
+  document.querySelector('.columns').querySelectorAll('.more').forEach(x => x.remove());
+
+  searching = true;
+  btnSearch.disabled = true;
+  btnSearch.textContent = '搜索中';
+
+  let pending = 2;
+  const done = () => {
+    pending--;
+    if (pending === 0) {
+      searching = false;
+      btnSearch.disabled = false;
+      btnSearch.textContent = '搜索';
+      updateMoreBtn();
+    }
+  };
+
+  loadTonzhon(1).then(list => {
+    tzList = list;
+    tzPage = 1;
+    if (list.length < 10) tzMore = false;
+    renderColumn('list-tz', tzList, 'tonzhon');
+    updateMoreBtn();
+    done();
+  }).catch(() => done());
+
+  loadInmp3(1).then(list => {
+    inList = list;
+    inPage = 1;
+    if (list.length < 10) inMore = false;
+    renderColumn('list-in', inList, 'inmp3');
+    updateMoreBtn();
+    done();
+  }).catch(() => done());
+}
+
+async function loadMore() {
+  if (searching || loadingMore) return;
+  if (!tzMore && !inMore) return;
+  loadingMore = true;
+  updateMoreBtn();
+
+  const tasks = [];
+  if (tzMore) {
+    tasks.push(loadTonzhon(tzPage + 1).then(arr => {
+      if (arr.length) {
+        tzPage++;
+        tzList = tzList.concat(arr);
+        renderColumn('list-tz', tzList, 'tonzhon');
+      }
+    }).catch(() => {}));
+  }
+  if (inMore) {
+    tasks.push(loadInmp3(inPage + 1).then(arr => {
+      if (arr.length) {
+        inPage++;
+        inList = inList.concat(arr);
+        renderColumn('list-in', inList, 'inmp3');
+      }
+    }).catch(() => {}));
+  }
+
+  await Promise.all(tasks);
+  loadingMore = false;
+  updateMoreBtn();
+}
+
+function renderColumn(id, arr, source) {
+  const box = document.getElementById(id);
+  box.innerHTML = '';
+  if (!arr.length) {
+    box.innerHTML = '<div class="empty">暂无结果</div>';
+    return;
+  }
+  const cls = source === 'tonzhon' ? 'tz' : 'in';
+  arr.forEach((s, i) => {
+    const div = document.createElement('div');
+    div.className = 'song ' + cls;
+    div.dataset.favKey = favKeyOf(s);
+    if (source === 'inmp3') div.dataset.rid = s.rid;
+
+    if (playingIdx && playingIdx.source === source && playingIdx.index === i) {
+      div.classList.add('playing');
+    }
+
+    const active = favKeys.has(favKeyOf(s)) ? 'active' : '';
+    div.innerHTML = `
+      <span class="offline-badge"></span>
+      <span class="fav-toggle ${active}" title="收藏/取消">★</span>
+      <div class="name">${escapeHtml(s.name)}</div>
+      <div class="artist">${escapeHtml(s.artist)}</div>
+      ${s.album ? `<div class="album">${escapeHtml(s.album)}</div>` : ''}
+    `;
+
+    const star = div.querySelector('.fav-toggle');
+    star.onclick = (e) => { e.stopPropagation(); toggleFavorite(s); };
+
+    // ★ 搜索页也用 attachTap，避免滑动误触
+    attachTap(div, () => play(source, i));
+    box.appendChild(div);
+  });
+  updateAllOfflineBadges();
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function updateMoreBtn() {
+  const box = document.querySelector('.columns');
+  box.querySelectorAll('.more').forEach(x => x.remove());
+  if (loadingMore) {
+    const m = document.createElement('div');
+    m.className = 'more loading';
+    m.textContent = '加载中...';
+    box.appendChild(m);
+  } else if (tzMore || inMore) {
+    const m = document.createElement('div');
+    m.className = 'more';
+    m.textContent = '加载更多...';
+    m.onclick = loadMore;
+    box.appendChild(m);
+  } else if (tzList.length || inList.length) {
+    const m = document.createElement('div');
+    m.className = 'more nomore';
+    m.textContent = '没有更多了';
+    box.appendChild(m);
+  }
+}
+
+// ============ 播放控制 ============
+function stopAudio() {
+  playToken++;
+  if (activeDownload) {
+    try { activeDownload.abort(); } catch (e) {}
+    activeDownload = null;
+  }
+  audio.onloadedmetadata = null;
+  audio.onerror = null;
+  try { audio.pause(); } catch (e) {}
+  audio.removeAttribute('src');
+  try { audio.load(); } catch (e) {}
+  updatePlayIcon(false);
+  setProgress(0, 0);
+  playingIdx = null;
+  favPlayingIdx = null;
+  setNavDisabled(true, true);
+  currentPlayingSong = null;
+  currentPlayingUrl = '';
+}
+
+function playPrev() {
+  if (favPlayingIdx) {
+    const i = favPlayingIdx.index;
+    if (i <= 0) return;
+    playFavorite(i - 1);
+    return;
+  }
+  if (!playingIdx) return;
+  const { source, index } = playingIdx;
+  if (index <= 0) return;
+  play(source, index - 1);
+}
+function playNext() {
+  if (favPlayingIdx) {
+    const i = favPlayingIdx.index;
+    if (i >= favList.length - 1) return;
+    playFavorite(i + 1);
+    return;
+  }
+  if (!playingIdx) return;
+  const { source, index } = playingIdx;
+  const list = source === 'tonzhon' ? tzList : inList;
+  if (index >= list.length - 1) return;
+  play(source, index + 1);
+}
+
+function updateNavButtonsByList() {
+  if (!playingIdx) { setNavDisabled(true, true); return; }
+  const { source, index } = playingIdx;
+  const list = source === 'tonzhon' ? tzList : inList;
+  const hasPrev = index > 0;
+  const hasNext = index < list.length - 1;
+  setNavDisabled(!hasPrev, !hasNext);
+}
+
+const btnPrev = document.getElementById('btn-prev');
+const btnNext = document.getElementById('btn-next');
+const btnPlay = document.getElementById('btn-play');
+const iconPlay = document.getElementById('icon-play');
+const iconPause = document.getElementById('icon-pause');
+
+function setNavDisabled(prevDisabled, nextDisabled) {
+  btnPrev.disabled = prevDisabled;
+  btnNext.disabled = nextDisabled;
+  btnPrev.style.opacity = prevDisabled ? '0.35' : '1';
+  btnNext.style.opacity = nextDisabled ? '0.35' : '1';
+  btnPrev.style.pointerEvents = prevDisabled ? 'none' : '';
+  btnNext.style.pointerEvents = nextDisabled ? 'none' : '';
+}
+
+btnPrev.onclick = playPrev;
+btnNext.onclick = playNext;
+btnPlay.onclick = () => {
+  if (!audio.src) return;
+  if (audio.paused) audio.play().catch(() => {});
+  else audio.pause();
+};
+
+function updatePlayIcon(isPlaying) {
+  iconPlay.style.display = isPlaying ? 'none' : 'block';
+  iconPause.style.display = isPlaying ? 'block' : 'none';
+}
+
+const progressBar = document.getElementById('progress');
+const progressFill = document.getElementById('progress-fill');
+const progressDot = document.getElementById('progress-dot');
+const tCur = document.getElementById('t-cur');
+const tDur = document.getElementById('t-dur');
+
+function fmt(sec) {
+  if (!sec || isNaN(sec) || sec < 0) return '0:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+function setProgress(cur, dur) {
+  const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
+  progressFill.style.width = pct + '%';
+  progressDot.style.left = pct + '%';
+  tCur.textContent = fmt(cur);
+  tDur.textContent = fmt(dur);
+}
+
+audio.addEventListener('timeupdate', () => setProgress(audio.currentTime, audio.duration));
+audio.addEventListener('loadedmetadata', () => setProgress(0, audio.duration));
+audio.addEventListener('play', () => updatePlayIcon(true));
+audio.addEventListener('pause', () => updatePlayIcon(false));
+
+audio.addEventListener('ended', () => {
+  updatePlayIcon(false);
+  if (favPlayingIdx) {
+    const i = favPlayingIdx.index;
+    if (i < favList.length - 1) playFavorite(i + 1);
+    return;
+  }
+  if (!playingIdx) return;
+  const { source, index } = playingIdx;
+  const list = source === 'tonzhon' ? tzList : inList;
+  if (index < list.length - 1) playNext();
+});
+
+function seekFromClientX(clientX) {
+  if (!audio.duration) return;
+  const rect = progressBar.getBoundingClientRect();
+  const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  audio.currentTime = pct * audio.duration;
+  setProgress(audio.currentTime, audio.duration);
+}
+let seeking = false;
+progressBar.addEventListener('pointerdown', (e) => {
+  seeking = true;
+  progressBar.setPointerCapture?.(e.pointerId);
+  seekFromClientX(e.clientX);
+});
+progressBar.addEventListener('pointermove', (e) => { if (seeking) seekFromClientX(e.clientX); });
+progressBar.addEventListener('pointerup', (e) => {
+  seeking = false;
+  try { progressBar.releasePointerCapture?.(e.pointerId); } catch (err) {}
+});
+progressBar.addEventListener('pointercancel', () => { seeking = false; });
+
+document.getElementById('kw').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// ============ 启动 ============
+async function boot() {
+  loadFavorites();
+  loadFailed();
+  setNavDisabled(true, true);
+  await restoreMusicDir();
+  updateDirBtnState();
+}
+boot();
+</script>
+</body>
+</html>

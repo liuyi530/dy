@@ -15,7 +15,8 @@
     color: #222;
   }
   h2 { margin: 4px 0 12px; font-size: 20px; }
-  .bar { display: flex; gap: 8px; margin-bottom: 12px; }
+
+  .bar { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
   .bar input { flex: 1; min-width: 0; padding: 10px 12px; font-size: 15px; border: 1px solid #d5d8dd; border-radius: 10px; background: #fff; outline: none; }
   .bar input:focus { border-color: #1db954; }
   .bar button { padding: 10px 18px; font-size: 15px; border: none; border-radius: 10px; background: #1db954; color: #fff; font-weight: 600; flex-shrink: 0; }
@@ -23,6 +24,99 @@
   .bar button:disabled { background: #a8dfb9; }
   .bar .fav-btn { background: #f5a623; padding: 10px 12px; }
   .bar .fav-btn:active { background: #d98f15; }
+
+  /* ★ 新增：返回按钮（红色） */
+  .bar .back-btn {
+    display: none;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 10px;
+    background: #e53935;
+    color: #fff;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .bar .back-btn:active { background: #c62828; }
+  .bar.in-search .back-btn { display: flex; }
+
+  /* ============ 主页（收藏列表，一行两个） ============ */
+  #home-view {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: start;
+  }
+  #home-view .home-item {
+    position: relative;
+    border-radius: 8px;
+    background: #f7f8fa;
+    padding: 10px 30px 10px 10px;
+    margin-bottom: 0;
+    cursor: pointer;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    border: 1.5px solid transparent;
+    transition: border-color .15s, background .15s;
+  }
+  #home-view .home-item:active { background: #eef9f1; }
+  #home-view .home-item.playing-item {
+    border-color: #1db954;
+    background: #eef9f1;
+  }
+  #home-view .home-item .name {
+    font-weight: 600;
+    font-size: 13px;
+    line-height: 1.35;
+    color: #222;
+    margin-bottom: 4px;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  #home-view .home-item .artist {
+    font-size: 11px;
+    color: #888;
+    line-height: 1.3;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  #home-view .home-item .offline-tag { font-size: 11px; color: #1db954; margin-left: 4px; }
+  #home-view .home-item .fav-toggle {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 20px;
+    color: #f5a623;
+    opacity: 1;
+    user-select: none;
+    z-index: 2;
+    padding: 2px 6px;
+    line-height: 1;
+    min-width: 28px;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #home-view .empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    color: #999;
+    padding: 24px 6px;
+    font-size: 12px;
+    background: #fff;
+    border-radius: 8px;
+  }
+
+  /* ============ 搜索页 ============ */
+  #search-view { display: none; }
+  #search-view.active { display: block; }
+  #home-view.active { display: grid; }
 
   .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
   .col { min-width: 0; }
@@ -319,7 +413,6 @@
   .dl-current-btn.failed { background: #e53935; }
   .dl-current-btn.failed::after { content: '❌'; font-size: 12px; }
 
-  /* ★ 新增：播放模式按钮 */
   .play-mode-btn {
     flex-shrink: 0;
     width: 24px;
@@ -364,29 +457,40 @@
     .ctrl-btn { width: 34px; height: 34px; }
     .ctrl-btn.play { width: 40px; height: 40px; }
     .song .fav-toggle { font-size: 20px; min-width: 30px; min-height: 30px; }
+    #home-view .home-item .name { font-size: 12px; }
   }
 </style>
 </head>
 <body>
 
 <h2>聚合音乐</h2>
-<div class="bar">
+
+<div class="bar" id="top-bar">
+  <button class="back-btn" id="btn-back" onclick="goHome()" title="返回收藏列表">←</button>
   <input id="kw" placeholder="输入歌名，如：南山雪" autocomplete="off">
   <button id="btn-search" onclick="doSearch()">搜索</button>
   <button class="fav-btn" onclick="openFavorites()">⭐ <span id="fav-count">0</span></button>
 </div>
 
-<div class="columns">
-  <div class="col">
-    <div class="col-title tz">铜钟</div>
-    <div id="list-tz">
-      <div class="empty">输入歌名后点搜索</div>
+<!-- ★ 主页：收藏列表（一行两个） -->
+<div id="home-view" class="active">
+  <div class="empty">还没有收藏，点歌曲卡片右上角的★收藏</div>
+</div>
+
+<!-- ★ 搜索页：铜钟 / IN音乐 -->
+<div id="search-view">
+  <div class="columns">
+    <div class="col">
+      <div class="col-title tz">铜钟</div>
+      <div id="list-tz">
+        <div class="empty">输入歌名后点搜索</div>
+      </div>
     </div>
-  </div>
-  <div class="col">
-    <div class="col-title in">IN音乐</div>
-    <div id="list-in">
-      <div class="empty">输入歌名后点搜索</div>
+    <div class="col">
+      <div class="col-title in">IN音乐</div>
+      <div id="list-in">
+        <div class="empty">输入歌名后点搜索</div>
+      </div>
     </div>
   </div>
 </div>
@@ -475,12 +579,13 @@ let favPlayingIdx = null;
 let playToken = 0;
 let dlBtnToken = 0;
 let dlBtnLastKey = '';
-let progressToken = 0;   // ★ 进度条 token，避免旧歌 timeupdate 写入新歌
-let playMode = 'order';  // ★ 'order' 顺序 | 'random' 随机
+let progressToken = 0;
+let playMode = 'order';
 let generation = 0;
 let sortMode = false;
 
 let favScrollTop = 0;
+let currentView = 'home'; // ★ 'home' 主页 | 'search' 搜索页
 
 let musicDirHandle = null;
 let pendingDirHandle = null;
@@ -552,6 +657,75 @@ async function looksLikeAudio(blob) {
   return false;
 }
 
+// ============ 视图切换 ============
+function showHome() {
+  currentView = 'home';
+  document.getElementById('home-view').classList.add('active');
+  document.getElementById('search-view').classList.remove('active');
+  document.getElementById('top-bar').classList.remove('in-search');
+  renderHomeView();
+}
+
+function showSearch() {
+  currentView = 'search';
+  document.getElementById('home-view').classList.remove('active');
+  document.getElementById('search-view').classList.add('active');
+  document.getElementById('top-bar').classList.add('in-search');
+}
+
+function goHome() {
+  showHome();
+}
+
+// ============ 渲染主页（收藏列表，一行两个） ============
+async function renderHomeView() {
+  const box = document.getElementById('home-view');
+  box.innerHTML = '';
+
+  if (!favList.length) {
+    box.innerHTML = '<div class="empty">还没有收藏，点歌曲卡片右上角的★收藏</div>';
+    return;
+  }
+
+  let fileSet = null;
+  if (musicDirHandle) {
+    fileSet = new Set();
+    try {
+      for await (const entry of musicDirHandle.values()) {
+        if (entry.kind === 'file') fileSet.add(entry.name);
+      }
+    } catch (e) {}
+  }
+
+  favList.forEach((f, i) => {
+    const fileName = buildLocalFileName(f);
+    const offline = fileSet && fileSet.has(fileName);
+    const isPlaying = favPlayingIdx && favPlayingIdx.index === i;
+
+    const div = document.createElement('div');
+    div.className = 'home-item' + (isPlaying ? ' playing-item' : '');
+    div.innerHTML = `
+      <span class="fav-toggle" title="取消收藏">★</span>
+      <div class="name">${escapeHtml(f.name)}${offline ? ' <span class="offline-tag">📥</span>' : ''}</div>
+      <div class="artist">${escapeHtml(f.artist)}${f.album ? ' · ' + escapeHtml(f.album) : ''}</div>
+    `;
+
+    const star = div.querySelector('.fav-toggle');
+    star.addEventListener('pointerdown', (e) => e.stopPropagation());
+    star.addEventListener('pointerup', (e) => {
+      e.stopPropagation();
+      toggleFavorite(f);
+    });
+
+    attachTap(div, () => {
+      if (currentView !== 'home') return;
+      playFavorite(i);
+    });
+
+    box.appendChild(div);
+  });
+}
+
 // ============ 扫描目录 ============
 async function scanMusicDir() {
   if (!('showDirectoryPicker' in window)) {
@@ -609,6 +783,7 @@ async function rescanAndToast(h) {
   showToast(`目录「${h.name}」：${total} 个 mp3，匹配收藏 ${matched} 首`, 3500);
   await updateAllOfflineBadges();
   if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+  if (currentView === 'home') renderHomeView();
 }
 
 function saveDirHandle() {
@@ -901,6 +1076,7 @@ async function downloadCurrent() {
     showToast(`📥 已下载：${song.name}`, 2000);
     await updateAllOfflineBadges();
     if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+    if (currentView === 'home') renderHomeView();
   } else {
     btn.classList.add('failed');
     btn.classList.remove('done');
@@ -922,14 +1098,12 @@ async function updateDlCurrentBtn() {
   }
 
   const fileName = buildLocalFileName(song);
-  // ★ 关键：不清空 class，只记录 key
   dlBtnLastKey = fileName;
 
   const myToken = ++dlBtnToken;
   const myPlayToken = playToken;
   const myKey = fileName;
 
-  // 已知失败 → 同步显示失败
   if (isFailed(fileName)) {
     if (myToken !== dlBtnToken || dlBtnLastKey !== myKey) return;
     if (!btn.classList.contains('failed')) {
@@ -940,11 +1114,9 @@ async function updateDlCurrentBtn() {
     return;
   }
 
-  // 异步查询
   const existing = await getFileFromDir(fileName);
   if (myToken !== dlBtnToken || myPlayToken !== playToken || dlBtnLastKey !== myKey) return;
 
-  // ★ 只在状态确实不一致时才改，且改一次
   if (existing) {
     if (!btn.classList.contains('done')) {
       btn.classList.remove('failed');
@@ -980,7 +1152,6 @@ function updatePlayModeBtn() {
   }
 }
 
-// 获取随机下一首的索引（排除当前）
 function pickRandomNext(currentIndex, listLength) {
   if (listLength <= 1) return currentIndex;
   let next = currentIndex;
@@ -1027,6 +1198,7 @@ async function toggleFavorite(s) {
     unmarkFailed(fileName);
     showToast(`🗑 已取消收藏：${s.name}`, 2000);
     if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+    if (currentView === 'home') renderHomeView();
     await markCardBadge(s);
     if (currentPlayingSong && favKeyOf(currentPlayingSong) === key) {
       dlBtnLastKey = '';
@@ -1043,6 +1215,7 @@ async function toggleFavorite(s) {
     refreshFavStars();
     showToast(`⭐ 已收藏：${s.name}`, 2000);
     if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+    if (currentView === 'home') renderHomeView();
     await markCardBadge(s);
   }
 }
@@ -1071,6 +1244,7 @@ async function manualDownloadFavorite(index) {
   else showToast(`❌ 下载失败：${f.name}`, 3000);
 
   renderFavPanel();
+  if (currentView === 'home') renderHomeView();
   await markCardBadge(f);
 }
 
@@ -1165,6 +1339,7 @@ function importFavoritesJson() {
       favKeys = new Set(favList.map(favKeyOf));
       saveFavorites();
       renderFavPanel();
+      if (currentView === 'home') renderHomeView();
       refreshFavStars();
       showToast(`导入完成：新增 ${added} 首${dup ? `，重复 ${dup}` : ''}`, 3500);
       if (musicDirHandle) await updateAllOfflineBadges();
@@ -1225,6 +1400,7 @@ async function clearCache() {
   showToast(`已清空 ${removed} 首非收藏缓存${protectedNames.size ? `（保留 ${protectedNames.size} 首收藏）` : ''}`);
   await updateAllOfflineBadges();
   if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+  if (currentView === 'home') renderHomeView();
 }
 
 // ============ 更新卡片图标 ============
@@ -1508,9 +1684,8 @@ async function play(source, i) {
 
   currentPlayingSong = s;
   currentPlayingUrl = '';
-  // ★ 立即清空进度条 + 下载按钮，防止旧歌状态残留
   setProgress(0, 0);
-  progressToken++;   // ★ 让旧歌的 timeupdate 失效
+  progressToken++;
   updateDlCurrentBtn();
 
   audio.onloadedmetadata = null;
@@ -1595,6 +1770,14 @@ async function playFavorite(index) {
   favPlayingIdx = { index };
   playingIdx = null;
 
+  // 主页高亮
+  const homeBox = document.getElementById('home-view');
+  if (homeBox) {
+    homeBox.querySelectorAll('.home-item').forEach((el, i) => {
+      el.classList.toggle('playing-item', i === index);
+    });
+  }
+  // 收藏面板高亮
   const favListBox = document.getElementById('fav-list');
   if (favListBox) {
     favListBox.querySelectorAll('.fav-item').forEach((el, i) => {
@@ -1611,7 +1794,6 @@ async function playFavorite(index) {
 
   currentPlayingSong = f;
   currentPlayingUrl = '';
-  // ★ 立即清空进度条 + 下载按钮
   setProgress(0, 0);
   progressToken++;
   updateDlCurrentBtn();
@@ -1772,6 +1954,8 @@ function doSearch() {
   const name = document.getElementById('kw').value.trim();
   if (!name) { alert('请输入歌名'); return; }
 
+  showSearch();   // ★ 切换到搜索视图
+
   generation++;
   keyword = name;
   tzList = []; inList = [];
@@ -1786,7 +1970,7 @@ function doSearch() {
 
   document.getElementById('list-tz').innerHTML = '<div class="empty">加载中...</div>';
   document.getElementById('list-in').innerHTML = '<div class="empty">加载中...</div>';
-  document.querySelector('.columns').querySelectorAll('.more').forEach(x => x.remove());
+  document.querySelector('#search-view .columns').querySelectorAll('.more').forEach(x => x.remove());
 
   searching = true;
   btnSearch.disabled = true;
@@ -1899,7 +2083,7 @@ function escapeHtml(s) {
 }
 
 function updateMoreBtn() {
-  const box = document.querySelector('.columns');
+  const box = document.querySelector('#search-view .columns');
   box.querySelectorAll('.more').forEach(x => x.remove());
   if (loadingMore) {
     const m = document.createElement('div');
@@ -2003,10 +2187,8 @@ function setProgress(cur, dur) {
   tDur.textContent = fmt(dur);
 }
 
-// ★ 用 progressToken 标记当前进度条归属，旧歌的 timeupdate 直接忽略
 let lastProgressToken = -1;
 audio.addEventListener('timeupdate', () => {
-  // 只有当前 token 的 timeupdate 才更新进度条
   if (progressToken === lastProgressToken) return;
   setProgress(audio.currentTime, audio.duration);
 });
@@ -2021,7 +2203,6 @@ audio.addEventListener('ended', () => {
   updatePlayIcon(false);
   audio.onerror = null;
 
-  // ★ 收藏列表播放
   if (favPlayingIdx) {
     const i = favPlayingIdx.index;
     const total = favList.length;
@@ -2032,13 +2213,11 @@ audio.addEventListener('ended', () => {
       const next = pickRandomNext(i, total);
       playFavorite(next);
     } else {
-      // 顺序：到最后一首就停止
       if (i < total - 1) playFavorite(i + 1);
     }
     return;
   }
 
-  // ★ 搜索列表播放
   if (!playingIdx) return;
   const { source, index } = playingIdx;
   const list = source === 'tonzhon' ? tzList : inList;
@@ -2164,6 +2343,9 @@ async function boot() {
   } else {
     updateDirBtnState();
   }
+
+  // ★ 启动时默认显示主页（收藏列表）
+  showHome();
 }
 
 boot();

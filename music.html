@@ -166,6 +166,12 @@
   .fav-inner.sorting .fav-item { background: transparent; }
   .fav-inner.sorting .fav-item .swipe-content { transform: none !important; }
 
+  /* ★ 新增：收藏列表正在播放项高亮 */
+  .fav-item.playing-item .swipe-content {
+    border: 1.5px solid #1db954;
+    background: #eef9f1;
+  }
+
   .fav-item.dragging {
     opacity: .95;
     z-index: 10;
@@ -434,6 +440,9 @@ let favPlayingIdx = null;
 let playToken = 0;
 let generation = 0;
 let sortMode = false;
+
+// ★ 新增：记录收藏列表滚动位置
+let favScrollTop = 0;
 
 let musicDirHandle = null;
 let pendingDirHandle = null;
@@ -862,15 +871,25 @@ async function downloadCurrent() {
   }
 }
 
+// ★ 修改：加 playToken 校验，避免切歌时图标抽搐
 async function updateDlCurrentBtn() {
   const btn = document.getElementById('btn-dl-current');
   if (!btn) return;
+
+  const myToken = playToken;
+
   btn.classList.remove('done', 'failed');
   btn.disabled = false;
+
   const song = currentPlayingSong;
   if (!song || !musicDirHandle) return;
+
   const fileName = buildLocalFileName(song);
   const existing = await getFileFromDir(fileName);
+
+  // ★ 如果过程中切歌了，放弃这次更新
+  if (myToken !== playToken) return;
+
   if (existing) btn.classList.add('done');
   else if (isFailed(fileName)) btn.classList.add('failed');
 }
@@ -981,6 +1000,9 @@ function openFavorites() {
   renderFavPanel();
 }
 function closeFavorites() {
+  // ★ 记录滚动位置
+  const inner = document.getElementById('fav-inner');
+  if (inner) favScrollTop = inner.scrollTop;
   document.getElementById('fav-panel').classList.remove('open');
 }
 
@@ -1197,6 +1219,13 @@ async function renderFavPanel() {
     if (sortMode) setupDrag(wrap, handle, i);
     box.appendChild(wrap);
   });
+
+  // ★ 渲染后恢复滚动位置
+  const inner = document.getElementById('fav-inner');
+  if (inner) {
+    const targetScroll = favScrollTop;
+    requestAnimationFrame(() => { inner.scrollTop = targetScroll; });
+  }
 }
 
 function attachTap(el, onTap) {
@@ -1294,6 +1323,7 @@ function setupDrag(wrap, handle, index) {
       else listBox.insertBefore(wrap, target.nextSibling);
       Array.from(listBox.querySelectorAll('.fav-item')).forEach((el, i) => { el.dataset.index = i; });
     };
+    // ★ 修改：删除 renderFavPanel()，避免闪回顶部
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
@@ -1301,13 +1331,20 @@ function setupDrag(wrap, handle, index) {
       wrap.classList.remove('dragging');
       favInner.classList.remove('dragging-active');
       if (!dragging) return;
+
+      // 修正正在播放的索引
       if (favPlayingIdx && favList[favPlayingIdx.index]) {
         const playingKey = favKeyOf(favList[favPlayingIdx.index]);
         const newIdx = favList.findIndex(x => favKeyOf(x) === playingKey);
         if (newIdx >= 0) favPlayingIdx.index = newIdx;
       }
+
+      // ★ 重新绑定每条数据的索引
+      const items = listBox.querySelectorAll('.fav-item');
+      items.forEach((el, i) => { el.dataset.index = i; });
+
+      // ★ 只保存，不刷新
       saveFavorites();
-      renderFavPanel();
     };
     document.addEventListener('pointermove', onMove, { passive: false });
     document.addEventListener('pointerup', onUp);
@@ -1461,6 +1498,15 @@ async function playFavorite(index) {
 
   favPlayingIdx = { index };
   playingIdx = null;
+
+  // ★ 新增：更新收藏列表高亮
+  const favListBox = document.getElementById('fav-list');
+  if (favListBox) {
+    favListBox.querySelectorAll('.fav-item').forEach((el, i) => {
+      el.classList.toggle('playing-item', i === index);
+    });
+  }
+
   updateFavNavButtons();
 
   document.querySelectorAll('.song').forEach(x => x.classList.remove('playing'));
@@ -1978,6 +2024,13 @@ async function boot() {
   loadFavorites();
   loadFailed();
   setNavDisabled(true, true);
+
+  // ★ 新增：点击收藏面板空白遮罩区域也能关闭（按钮仍是 ×）
+  document.getElementById('fav-panel').addEventListener('click', (e) => {
+    if (e.target.id === 'fav-panel') {
+      closeFavorites();
+    }
+  });
 
   const savedHandle = await loadDirHandleFromIDB();
   if (savedHandle) {

@@ -319,6 +319,27 @@
   .dl-current-btn.failed { background: #e53935; }
   .dl-current-btn.failed::after { content: '❌'; font-size: 12px; }
 
+  /* ★ 新增：播放模式按钮 */
+  .play-mode-btn {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: #eef1f4;
+    color: #555;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background .15s;
+  }
+  .play-mode-btn:active { background: #dfe3e8; }
+  .play-mode-btn.random { background: #1db954; color: #fff; }
+
   .toast {
     position: fixed;
     top: 12px;
@@ -401,6 +422,7 @@
       <div class="title-row">
         <button class="dl-current-btn" id="btn-dl-current" title="下载到音乐目录" onclick="downloadCurrent()">⬇</button>
         <div class="title" id="p-title"></div>
+        <button class="play-mode-btn" id="btn-play-mode" title="顺序播放" onclick="togglePlayMode()">🔁</button>
       </div>
       <div class="sub" id="p-sub"></div>
     </div>
@@ -452,7 +474,9 @@ let playingIdx = null;
 let favPlayingIdx = null;
 let playToken = 0;
 let dlBtnToken = 0;
-let dlBtnLastKey = '';   // ★ 新增：记录上次显示的歌曲 key，用于切歌时同步清空按钮状态
+let dlBtnLastKey = '';
+let progressToken = 0;   // ★ 进度条 token，避免旧歌 timeupdate 写入新歌
+let playMode = 'order';  // ★ 'order' 顺序 | 'random' 随机
 let generation = 0;
 let sortMode = false;
 
@@ -884,60 +908,86 @@ async function downloadCurrent() {
   }
 }
 
-// ★★★ 修复切歌抽搐：切歌时立即同步清空 done/failed，再异步显示正确状态 ★★★
+// ★★★ 最终版：同步清空 + 异步仅在 key 未变时更新 ★★★
 async function updateDlCurrentBtn() {
   const btn = document.getElementById('btn-dl-current');
   if (!btn) return;
 
   const song = currentPlayingSong;
-
-  // 没有歌曲 / 没有目录时清空并返回
   if (!song || !musicDirHandle) {
-    if (dlBtnLastKey !== '__empty__') {
-      btn.classList.remove('done', 'failed');
-      dlBtnLastKey = '__empty__';
-    }
+    btn.classList.remove('done', 'failed');
+    dlBtnLastKey = '';
     btn.disabled = false;
     return;
   }
 
   const fileName = buildLocalFileName(song);
-
-  // ★ 关键：如果是"新歌"，立即同步清空上一首的 done/failed
-  // 这样异步返回时只会看到一次 ⬇ → 📥 的变化
-  if (dlBtnLastKey !== fileName) {
-    btn.classList.remove('done', 'failed');
-    dlBtnLastKey = fileName;
-  }
+  // ★ 关键：不清空 class，只记录 key
+  dlBtnLastKey = fileName;
 
   const myToken = ++dlBtnToken;
   const myPlayToken = playToken;
+  const myKey = fileName;
 
   // 已知失败 → 同步显示失败
   if (isFailed(fileName)) {
-    if (myToken !== dlBtnToken) return;
-    btn.classList.remove('done');
-    btn.classList.add('failed');
+    if (myToken !== dlBtnToken || dlBtnLastKey !== myKey) return;
+    if (!btn.classList.contains('failed')) {
+      btn.classList.remove('done');
+      btn.classList.add('failed');
+    }
     btn.disabled = false;
     return;
   }
 
-  // 异步查询文件
+  // 异步查询
   const existing = await getFileFromDir(fileName);
+  if (myToken !== dlBtnToken || myPlayToken !== playToken || dlBtnLastKey !== myKey) return;
 
-  // 双重令牌校验
-  if (myToken !== dlBtnToken || myPlayToken !== playToken) return;
-  // 又切歌了，放弃
-  if (dlBtnLastKey !== fileName) return;
-
-  // 只在需要变化时改 class
+  // ★ 只在状态确实不一致时才改，且改一次
   if (existing) {
     if (!btn.classList.contains('done')) {
       btn.classList.remove('failed');
       btn.classList.add('done');
     }
+  } else {
+    if (btn.classList.contains('done') || btn.classList.contains('failed')) {
+      btn.classList.remove('done', 'failed');
+    }
   }
   btn.disabled = false;
+}
+
+// ============ 播放模式 ============
+function togglePlayMode() {
+  playMode = (playMode === 'order') ? 'random' : 'order';
+  updatePlayModeBtn();
+  try { localStorage.setItem('music_play_mode', playMode); } catch (e) {}
+  showToast(playMode === 'random' ? '🔀 随机播放' : '🔁 顺序播放', 1500);
+}
+
+function updatePlayModeBtn() {
+  const btn = document.getElementById('btn-play-mode');
+  if (!btn) return;
+  if (playMode === 'random') {
+    btn.classList.add('random');
+    btn.textContent = '🔀';
+    btn.title = '随机播放（点击切换为顺序）';
+  } else {
+    btn.classList.remove('random');
+    btn.textContent = '🔁';
+    btn.title = '顺序播放（点击切换为随机）';
+  }
+}
+
+// 获取随机下一首的索引（排除当前）
+function pickRandomNext(currentIndex, listLength) {
+  if (listLength <= 1) return currentIndex;
+  let next = currentIndex;
+  while (next === currentIndex) {
+    next = Math.floor(Math.random() * listLength);
+  }
+  return next;
 }
 
 // ============ 收藏 ============
@@ -978,9 +1028,8 @@ async function toggleFavorite(s) {
     showToast(`🗑 已取消收藏：${s.name}`, 2000);
     if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
     await markCardBadge(s);
-    // 如果取消收藏的正是当前播放的歌，刷新下载按钮
     if (currentPlayingSong && favKeyOf(currentPlayingSong) === key) {
-      dlBtnLastKey = '';   // 强制重算
+      dlBtnLastKey = '';
       updateDlCurrentBtn();
     }
   } else {
@@ -1459,13 +1508,15 @@ async function play(source, i) {
 
   currentPlayingSong = s;
   currentPlayingUrl = '';
+  // ★ 立即清空进度条 + 下载按钮，防止旧歌状态残留
+  setProgress(0, 0);
+  progressToken++;   // ★ 让旧歌的 timeupdate 失效
   updateDlCurrentBtn();
 
   audio.onloadedmetadata = null;
   audio.onerror = null;
   audio.removeAttribute('src');
   updatePlayIcon(false);
-  setProgress(0, 0);
 
   const local = await resolveLocalFile(s);
   if (local) {
@@ -1560,13 +1611,15 @@ async function playFavorite(index) {
 
   currentPlayingSong = f;
   currentPlayingUrl = '';
+  // ★ 立即清空进度条 + 下载按钮
+  setProgress(0, 0);
+  progressToken++;
   updateDlCurrentBtn();
 
   audio.onloadedmetadata = null;
   audio.onerror = null;
   audio.removeAttribute('src');
   updatePlayIcon(false);
-  setProgress(0, 0);
 
   const local = await resolveLocalFile(f);
   if (local) {
@@ -1867,31 +1920,6 @@ function updateMoreBtn() {
   }
 }
 
-// ============ 播放控制 ============
-function stopAudio() {
-  playToken++;
-  if (activeDownload) {
-    try { activeDownload.abort(); } catch (e) {}
-    activeDownload = null;
-  }
-  audio.onloadedmetadata = null;
-  audio.onerror = null;
-  try { audio.pause(); } catch (e) {}
-  audio.removeAttribute('src');
-  try { audio.load(); } catch (e) {}
-  updatePlayIcon(false);
-  setProgress(0, 0);
-  playingIdx = null;
-  favPlayingIdx = null;
-  setNavDisabled(true, true);
-  currentPlayingSong = null;
-  currentPlayingUrl = '';
-  // ★ 清空下载按钮
-  dlBtnLastKey = '';
-  const btn = document.getElementById('btn-dl-current');
-  if (btn) btn.classList.remove('done', 'failed');
-}
-
 function playPrev() {
   if (favPlayingIdx) {
     const i = favPlayingIdx.index;
@@ -1975,8 +2003,17 @@ function setProgress(cur, dur) {
   tDur.textContent = fmt(dur);
 }
 
-audio.addEventListener('timeupdate', () => setProgress(audio.currentTime, audio.duration));
-audio.addEventListener('loadedmetadata', () => setProgress(0, audio.duration));
+// ★ 用 progressToken 标记当前进度条归属，旧歌的 timeupdate 直接忽略
+let lastProgressToken = -1;
+audio.addEventListener('timeupdate', () => {
+  // 只有当前 token 的 timeupdate 才更新进度条
+  if (progressToken === lastProgressToken) return;
+  setProgress(audio.currentTime, audio.duration);
+});
+audio.addEventListener('loadedmetadata', () => {
+  lastProgressToken = progressToken;
+  setProgress(0, audio.duration);
+});
 audio.addEventListener('play', () => updatePlayIcon(true));
 audio.addEventListener('pause', () => updatePlayIcon(false));
 
@@ -1984,15 +2021,36 @@ audio.addEventListener('ended', () => {
   updatePlayIcon(false);
   audio.onerror = null;
 
+  // ★ 收藏列表播放
   if (favPlayingIdx) {
     const i = favPlayingIdx.index;
-    if (i < favList.length - 1) playFavorite(i + 1);
+    const total = favList.length;
+    if (total <= 0) return;
+
+    if (playMode === 'random') {
+      if (total === 1) { playFavorite(0); return; }
+      const next = pickRandomNext(i, total);
+      playFavorite(next);
+    } else {
+      // 顺序：到最后一首就停止
+      if (i < total - 1) playFavorite(i + 1);
+    }
     return;
   }
+
+  // ★ 搜索列表播放
   if (!playingIdx) return;
   const { source, index } = playingIdx;
   const list = source === 'tonzhon' ? tzList : inList;
-  if (index < list.length - 1) playNext();
+  const total = list.length;
+
+  if (playMode === 'random') {
+    if (total === 1) { play(source, 0); return; }
+    const next = pickRandomNext(index, total);
+    play(source, next);
+  } else {
+    if (index < total - 1) playNext();
+  }
 });
 
 // ============ 进度条拖动 ============
@@ -2070,6 +2128,13 @@ async function boot() {
   loadFavorites();
   loadFailed();
   setNavDisabled(true, true);
+
+  // ★ 恢复播放模式
+  try {
+    const savedMode = localStorage.getItem('music_play_mode');
+    if (savedMode === 'random' || savedMode === 'order') playMode = savedMode;
+  } catch (e) {}
+  updatePlayModeBtn();
 
   document.getElementById('fav-panel').addEventListener('click', (e) => {
     if (e.target.id === 'fav-panel') {

@@ -31,14 +31,32 @@
   .col-title.in { color: #1e6fff; }
 
   .song { border-radius: 8px; margin-bottom: 8px; border: 1.5px solid transparent; word-break: break-word; overflow-wrap: anywhere; cursor: pointer; position: relative; transition: border-color .15s, background .15s; }
-  .song.tz { background: #ffd9d9; padding: 8px 28px 8px 18px; }
+  .song.tz { background: #ffd9d9; padding: 8px 34px 8px 18px; }
   .song.tz:active { background: #ffc4c4; }
   .song.tz.playing { border-color: #e53935; background: #ffc4c4; }
-  .song.in { background: #d6e6ff; padding: 8px 28px 8px 10px; }
+  .song.in { background: #d6e6ff; padding: 8px 34px 8px 10px; }
   .song.in:active { background: #bfd9ff; }
   .song.in.playing { border-color: #1e6fff; background: #bfd9ff; }
 
-  .song .fav-toggle { position: absolute; top: 4px; right: 4px; font-size: 16px; color: #f5a623; opacity: .3; transition: opacity .15s; user-select: none; z-index: 2; padding: 2px 4px; }
+  /* ★ 收藏星星加大：字体 22px，padding 扩大到 24x24 触摸区 */
+  .song .fav-toggle {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    font-size: 22px;
+    color: #f5a623;
+    opacity: .35;
+    transition: opacity .15s;
+    user-select: none;
+    z-index: 2;
+    padding: 2px 6px;
+    line-height: 1;
+    min-width: 32px;
+    min-height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
   .song .fav-toggle.active { opacity: 1; }
 
   .song .offline-badge { position: absolute; top: 4px; font-size: 12px; display: none; z-index: 2; left: 4px; }
@@ -112,6 +130,7 @@
     background: #f7f8fa;
     transition: transform .2s ease;
     will-change: transform;
+    border-radius: 8px;
   }
   .fav-item.swiped .swipe-content { transform: translateX(-72px); }
   .fav-item .del-btn {
@@ -166,10 +185,11 @@
   .fav-inner.sorting .fav-item { background: transparent; }
   .fav-inner.sorting .fav-item .swipe-content { transform: none !important; }
 
-  /* ★ 新增：收藏列表正在播放项高亮 */
+  /* ★ 修复：收藏列表正在播放项高亮，明确加 border-radius 让它贴合圆角 */
   .fav-item.playing-item .swipe-content {
     border: 1.5px solid #1db954;
     background: #eef9f1;
+    border-radius: 8px;
   }
 
   .fav-item.dragging {
@@ -328,6 +348,7 @@
     .song .artist, .song .album { font-size: 10px; }
     .ctrl-btn { width: 34px; height: 34px; }
     .ctrl-btn.play { width: 40px; height: 40px; }
+    .song .fav-toggle { font-size: 20px; min-width: 30px; min-height: 30px; }
   }
 </style>
 </head>
@@ -438,10 +459,11 @@ let loadingMore = false;
 let playingIdx = null;
 let favPlayingIdx = null;
 let playToken = 0;
+let dlBtnToken = 0;   // ★ 下载按钮专用防抖令牌
 let generation = 0;
 let sortMode = false;
 
-// ★ 新增：记录收藏列表滚动位置
+// ★ 记录收藏列表滚动位置
 let favScrollTop = 0;
 
 let musicDirHandle = null;
@@ -871,12 +893,13 @@ async function downloadCurrent() {
   }
 }
 
-// ★ 修改：加 playToken 校验，避免切歌时图标抽搐
+// ★ 修复：双重令牌防抖，彻底解决下载图标抽搐
 async function updateDlCurrentBtn() {
   const btn = document.getElementById('btn-dl-current');
   if (!btn) return;
 
-  const myToken = playToken;
+  const myToken = ++dlBtnToken;
+  const myPlayToken = playToken;
 
   btn.classList.remove('done', 'failed');
   btn.disabled = false;
@@ -885,13 +908,20 @@ async function updateDlCurrentBtn() {
   if (!song || !musicDirHandle) return;
 
   const fileName = buildLocalFileName(song);
+
+  // 先同步检查失败标记
+  if (isFailed(fileName)) {
+    if (myToken !== dlBtnToken) return;
+    btn.classList.add('failed');
+    return;
+  }
+
   const existing = await getFileFromDir(fileName);
 
-  // ★ 如果过程中切歌了，放弃这次更新
-  if (myToken !== playToken) return;
+  // ★ 双重校验：按钮令牌 + 播放令牌
+  if (myToken !== dlBtnToken || myPlayToken !== playToken) return;
 
   if (existing) btn.classList.add('done');
-  else if (isFailed(fileName)) btn.classList.add('failed');
 }
 
 // ============ 收藏 ============
@@ -1323,7 +1353,7 @@ function setupDrag(wrap, handle, index) {
       else listBox.insertBefore(wrap, target.nextSibling);
       Array.from(listBox.querySelectorAll('.fav-item')).forEach((el, i) => { el.dataset.index = i; });
     };
-    // ★ 修改：删除 renderFavPanel()，避免闪回顶部
+    // ★ 修复：删除 renderFavPanel()，避免闪回顶部
     const onUp = () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
@@ -1499,7 +1529,7 @@ async function playFavorite(index) {
   favPlayingIdx = { index };
   playingIdx = null;
 
-  // ★ 新增：更新收藏列表高亮
+  // ★ 更新收藏列表高亮
   const favListBox = document.getElementById('fav-list');
   if (favListBox) {
     favListBox.querySelectorAll('.fav-item').forEach((el, i) => {
@@ -1935,7 +1965,6 @@ audio.addEventListener('pause', () => updatePlayIcon(false));
 
 audio.addEventListener('ended', () => {
   updatePlayIcon(false);
-  // ★ 先清 error，避免播完触发弹窗
   audio.onerror = null;
 
   if (favPlayingIdx) {
@@ -1950,7 +1979,7 @@ audio.addEventListener('ended', () => {
 });
 
 // ============ 进度条拖动 ============
-let progressDrag = null;   // { mode: 'dot'|'bar', startX, startTime }
+let progressDrag = null;
 
 function getBarRect() {
   return progressBar.getBoundingClientRect();
@@ -2025,7 +2054,7 @@ async function boot() {
   loadFailed();
   setNavDisabled(true, true);
 
-  // ★ 新增：点击收藏面板空白遮罩区域也能关闭（按钮仍是 ×）
+  // ★ 点击收藏面板空白遮罩区域也能关闭（按钮仍是 ×）
   document.getElementById('fav-panel').addEventListener('click', (e) => {
     if (e.target.id === 'fav-panel') {
       closeFavorites();

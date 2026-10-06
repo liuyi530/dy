@@ -1488,6 +1488,7 @@ function attachTap(el, onTap) {
   });
   el.addEventListener('pointerup', () => {
     if (cancelled) { cancelled = false; return; }
+    console.log('🖱 tap 触发');
     onTap();
   });
   el.addEventListener('pointercancel', () => { cancelled = true; });
@@ -1631,7 +1632,8 @@ async function playLocalFile(file, myToken) {
 async function play(source, i) {
   const list = source === 'tonzhon' ? tzList : inList;
   const s = list[i];
-  if (!s) return;
+  if (!s) { console.warn('❌ 歌曲不存在', source, i); return; }
+  console.log('▶ 开始播放', source, s.name);
 
   const myToken = ++playToken;
 
@@ -1696,7 +1698,12 @@ async function play(source, i) {
       return;
     }
   }
-  if (!onlineUrl) { showToast('没有可播放地址', 2000); return; }
+  if (!onlineUrl) { 
+    console.warn('❌ 没有可播放地址', source, s);
+    showToast('没有可播放地址', 2000); 
+    return; 
+  }
+  console.log('🔗 播放地址：', onlineUrl);
   if (myToken !== playToken) return;
 
   currentPlayingSong = s;
@@ -1707,6 +1714,7 @@ async function play(source, i) {
   audio.src = onlineUrl;
   audio.onloadedmetadata = () => {
     if (myToken !== playToken) return;
+    console.log('📊 loadedmetadata, duration =', audio.duration);
     if (source === 'tonzhon' && audio.duration && isFinite(audio.duration) && audio.duration < MIN_DURATION) {
       // 铃声/片段过滤
       const idx = tzList.findIndex(x => x.id === s.id);
@@ -1719,14 +1727,14 @@ async function play(source, i) {
       return;
     }
     audio.play()
-      .then(() => updatePlayIcon(true))
-      .catch((err) => { console.warn('播放失败', err); showToast('这首歌播放不了', 2000); });
+      .then(() => { console.log('▶️ 播放已启动'); updatePlayIcon(true); })
+      .catch((err) => { console.warn('❌ 播放失败', err); showToast('这首歌播放不了：' + (err.message || ''), 2500); });
   };
   audio.onerror = () => {
     if (myToken !== playToken) return;
     if (audio.ended) return;
-    console.warn('audio 加载出错', audio.error);
-    // 不弹窗，避免打断用户
+    console.warn('❌ audio 加载出错 code=', audio.error && audio.error.code);
+    showToast('❌ 音频加载失败，可能版权受限', 2500);
   };
 }
 
@@ -1805,7 +1813,8 @@ async function playFavorite(index) {
   audio.onerror = () => {
     if (myToken !== playToken) return;
     if (audio.ended) return;
-    console.warn('audio 加载出错', audio.error);
+    console.warn('❌ audio 加载出错 code=', audio.error && audio.error.code);
+    showToast('❌ 音频加载失败', 2500);
   };
 }
 

@@ -25,7 +25,6 @@
   .bar .fav-btn { background: #f5a623; padding: 10px 12px; }
   .bar .fav-btn:active { background: #d98f15; }
 
-  /* ★ 新增：返回按钮（红色） */
   .bar .back-btn {
     display: none;
     width: 40px;
@@ -56,7 +55,7 @@
     position: relative;
     border-radius: 8px;
     background: #f7f8fa;
-    padding: 10px 30px 10px 10px;
+    padding: 10px 12px;
     margin-bottom: 0;
     cursor: pointer;
     word-break: break-word;
@@ -86,23 +85,6 @@
     overflow-wrap: anywhere;
   }
   #home-view .home-item .offline-tag { font-size: 11px; color: #1db954; margin-left: 4px; }
-  #home-view .home-item .fav-toggle {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    font-size: 20px;
-    color: #f5a623;
-    opacity: 1;
-    user-select: none;
-    z-index: 2;
-    padding: 2px 6px;
-    line-height: 1;
-    min-width: 28px;
-    min-height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
   #home-view .empty {
     grid-column: 1 / -1;
     text-align: center;
@@ -472,12 +454,10 @@
   <button class="fav-btn" onclick="openFavorites()">⭐ <span id="fav-count">0</span></button>
 </div>
 
-<!-- ★ 主页：收藏列表（一行两个） -->
 <div id="home-view" class="active">
-  <div class="empty">还没有收藏，点歌曲卡片右上角的★收藏</div>
+  <div class="empty">还没有收藏，去搜索页收藏歌曲</div>
 </div>
 
-<!-- ★ 搜索页：铜钟 / IN音乐 -->
 <div id="search-view">
   <div class="columns">
     <div class="col">
@@ -579,13 +559,12 @@ let favPlayingIdx = null;
 let playToken = 0;
 let dlBtnToken = 0;
 let dlBtnLastKey = '';
-let progressToken = 0;
 let playMode = 'order';
 let generation = 0;
 let sortMode = false;
 
 let favScrollTop = 0;
-let currentView = 'home'; // ★ 'home' 主页 | 'search' 搜索页
+let currentView = 'home';
 
 let musicDirHandle = null;
 let pendingDirHandle = null;
@@ -677,13 +656,13 @@ function goHome() {
   showHome();
 }
 
-// ============ 渲染主页（收藏列表，一行两个） ============
+// ============ 渲染主页（收藏列表，一行两个，无★） ============
 async function renderHomeView() {
   const box = document.getElementById('home-view');
   box.innerHTML = '';
 
   if (!favList.length) {
-    box.innerHTML = '<div class="empty">还没有收藏，点歌曲卡片右上角的★收藏</div>';
+    box.innerHTML = '<div class="empty">还没有收藏，去搜索页收藏歌曲</div>';
     return;
   }
 
@@ -705,17 +684,9 @@ async function renderHomeView() {
     const div = document.createElement('div');
     div.className = 'home-item' + (isPlaying ? ' playing-item' : '');
     div.innerHTML = `
-      <span class="fav-toggle" title="取消收藏">★</span>
       <div class="name">${escapeHtml(f.name)}${offline ? ' <span class="offline-tag">📥</span>' : ''}</div>
       <div class="artist">${escapeHtml(f.artist)}${f.album ? ' · ' + escapeHtml(f.album) : ''}</div>
     `;
-
-    const star = div.querySelector('.fav-toggle');
-    star.addEventListener('pointerdown', (e) => e.stopPropagation());
-    star.addEventListener('pointerup', (e) => {
-      e.stopPropagation();
-      toggleFavorite(f);
-    });
 
     attachTap(div, () => {
       if (currentView !== 'home') return;
@@ -1084,7 +1055,7 @@ async function downloadCurrent() {
   }
 }
 
-// ★★★ 最终版：同步清空 + 异步仅在 key 未变时更新 ★★★
+// ============ 下载按钮状态 ============
 async function updateDlCurrentBtn() {
   const btn = document.getElementById('btn-dl-current');
   if (!btn) return;
@@ -1424,12 +1395,12 @@ async function updateAllOfflineBadges() {
   }
 }
 
-// ============ 收藏面板渲染 ============
+// ============ 收藏面板渲染（保持原样，有★/下载/删除/排序） ============
 async function renderFavPanel() {
   const box = document.getElementById('fav-list');
   box.innerHTML = '';
   if (!favList.length) {
-    box.innerHTML = '<div class="empty">还没有收藏，点歌曲卡片右上角的★收藏</div>';
+    box.innerHTML = '<div class="empty">还没有收藏，点搜索卡片右上角的★收藏</div>';
     return;
   }
 
@@ -1650,7 +1621,9 @@ async function playLocalFile(file, myToken) {
       if (settled) return;
       settled = true;
       if (myToken !== playToken) { resolve(false); return; }
-      audio.play().then(() => { updatePlayIcon(true); resolve(true); }).catch(() => resolve(false));
+      audio.play()
+        .then(() => { updatePlayIcon(true); resolve(true); })
+        .catch((err) => { console.warn('本地播放失败', err); resolve(false); });
     };
   });
 }
@@ -1684,8 +1657,6 @@ async function play(source, i) {
 
   currentPlayingSong = s;
   currentPlayingUrl = '';
-  setProgress(0, 0);
-  progressToken++;
   updateDlCurrentBtn();
 
   audio.onloadedmetadata = null;
@@ -1694,8 +1665,8 @@ async function play(source, i) {
   updatePlayIcon(false);
 
   const local = await resolveLocalFile(s);
+  if (myToken !== playToken) return;
   if (local) {
-    if (myToken !== playToken) return;
     const ok = await playLocalFile(local.file, myToken);
     if (myToken !== playToken) return;
     if (ok) {
@@ -1703,7 +1674,6 @@ async function play(source, i) {
         cardEl.classList.remove('failed', 'downloading');
         cardEl.classList.add('offline');
       }
-      currentPlayingSong = s;
       currentPlayingUrl = '';
       updateDlCurrentBtn();
       return;
@@ -1721,11 +1691,12 @@ async function play(source, i) {
       onlineUrl = data.audioSrc || '';
     } catch (e) {
       if (myToken !== playToken) return;
-      alert('获取播放地址失败：' + e.message);
+      console.warn('获取播放地址失败', e);
+      showToast('获取播放地址失败', 2000);
       return;
     }
   }
-  if (!onlineUrl) { alert('没有可播放地址'); return; }
+  if (!onlineUrl) { showToast('没有可播放地址', 2000); return; }
   if (myToken !== playToken) return;
 
   currentPlayingSong = s;
@@ -1736,7 +1707,8 @@ async function play(source, i) {
   audio.src = onlineUrl;
   audio.onloadedmetadata = () => {
     if (myToken !== playToken) return;
-    if (source === 'tonzhon' && audio.duration && audio.duration < MIN_DURATION) {
+    if (source === 'tonzhon' && audio.duration && isFinite(audio.duration) && audio.duration < MIN_DURATION) {
+      // 铃声/片段过滤
       const idx = tzList.findIndex(x => x.id === s.id);
       if (idx >= 0) tzList.splice(idx, 1);
       playingIdx = null;
@@ -1746,13 +1718,15 @@ async function play(source, i) {
       play('tonzhon', nextIdx);
       return;
     }
-    audio.play().then(() => updatePlayIcon(true)).catch(() => alert('这首歌播放不了'));
+    audio.play()
+      .then(() => updatePlayIcon(true))
+      .catch((err) => { console.warn('播放失败', err); showToast('这首歌播放不了', 2000); });
   };
   audio.onerror = () => {
     if (myToken !== playToken) return;
     if (audio.ended) return;
-    const code = audio.error && audio.error.code;
-    if (code === 2 || code === 4) alert('这首歌加载失败');
+    console.warn('audio 加载出错', audio.error);
+    // 不弹窗，避免打断用户
   };
 }
 
@@ -1794,8 +1768,6 @@ async function playFavorite(index) {
 
   currentPlayingSong = f;
   currentPlayingUrl = '';
-  setProgress(0, 0);
-  progressToken++;
   updateDlCurrentBtn();
 
   audio.onloadedmetadata = null;
@@ -1804,12 +1776,11 @@ async function playFavorite(index) {
   updatePlayIcon(false);
 
   const local = await resolveLocalFile(f);
+  if (myToken !== playToken) return;
   if (local) {
-    if (myToken !== playToken) return;
     const ok = await playLocalFile(local.file, myToken);
     if (myToken !== playToken) return;
     if (ok) {
-      currentPlayingSong = f;
       currentPlayingUrl = '';
       updateDlCurrentBtn();
       return;
@@ -1817,9 +1788,9 @@ async function playFavorite(index) {
   }
 
   document.getElementById('p-sub').textContent = '⏳ 获取播放地址...';
-  let onlineUrl = await resolveOnlineUrl(f);
+  const onlineUrl = await resolveOnlineUrl(f);
   if (myToken !== playToken) return;
-  if (!onlineUrl) { alert('没有可播放地址'); return; }
+  if (!onlineUrl) { showToast('没有可播放地址', 2000); return; }
   currentPlayingSong = f;
   currentPlayingUrl = onlineUrl;
   updateDlCurrentBtn();
@@ -1827,13 +1798,14 @@ async function playFavorite(index) {
   audio.src = onlineUrl;
   audio.onloadedmetadata = () => {
     if (myToken !== playToken) return;
-    audio.play().then(() => updatePlayIcon(true)).catch(() => alert('播放失败'));
+    audio.play()
+      .then(() => updatePlayIcon(true))
+      .catch((err) => { console.warn('播放失败', err); showToast('播放失败', 2000); });
   };
   audio.onerror = () => {
     if (myToken !== playToken) return;
     if (audio.ended) return;
-    const code = audio.error && audio.error.code;
-    if (code === 2 || code === 4) alert('加载失败');
+    console.warn('audio 加载出错', audio.error);
   };
 }
 
@@ -1954,7 +1926,7 @@ function doSearch() {
   const name = document.getElementById('kw').value.trim();
   if (!name) { alert('请输入歌名'); return; }
 
-  showSearch();   // ★ 切换到搜索视图
+  showSearch();
 
   generation++;
   keyword = name;
@@ -2174,27 +2146,25 @@ const tCur = document.getElementById('t-cur');
 const tDur = document.getElementById('t-dur');
 
 function fmt(sec) {
-  if (!sec || isNaN(sec) || sec < 0) return '0:00';
+  if (!sec || isNaN(sec) || sec < 0 || !isFinite(sec)) return '0:00';
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return m + ':' + (s < 10 ? '0' : '') + s;
 }
 function setProgress(cur, dur) {
-  const pct = dur > 0 ? Math.min(100, (cur / dur) * 100) : 0;
+  const pct = (dur > 0 && isFinite(dur)) ? Math.min(100, (cur / dur) * 100) : 0;
   progressFill.style.width = pct + '%';
   progressDot.style.left = pct + '%';
   tCur.textContent = fmt(cur);
   tDur.textContent = fmt(dur);
 }
 
-let lastProgressToken = -1;
+// ★ 简化：直接监听，不做 token 拦截
 audio.addEventListener('timeupdate', () => {
-  if (progressToken === lastProgressToken) return;
-  setProgress(audio.currentTime, audio.duration);
+  setProgress(audio.currentTime, audio.duration || 0);
 });
 audio.addEventListener('loadedmetadata', () => {
-  lastProgressToken = progressToken;
-  setProgress(0, audio.duration);
+  setProgress(0, audio.duration || 0);
 });
 audio.addEventListener('play', () => updatePlayIcon(true));
 audio.addEventListener('pause', () => updatePlayIcon(false));
@@ -2308,7 +2278,6 @@ async function boot() {
   loadFailed();
   setNavDisabled(true, true);
 
-  // ★ 恢复播放模式
   try {
     const savedMode = localStorage.getItem('music_play_mode');
     if (savedMode === 'random' || savedMode === 'order') playMode = savedMode;
@@ -2344,7 +2313,6 @@ async function boot() {
     updateDirBtnState();
   }
 
-  // ★ 启动时默认显示主页（收藏列表）
   showHome();
 }
 

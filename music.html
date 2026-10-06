@@ -452,6 +452,7 @@ let playingIdx = null;
 let favPlayingIdx = null;
 let playToken = 0;
 let dlBtnToken = 0;
+let dlBtnLastKey = '';   // ★ 新增：记录上次显示的歌曲 key，用于切歌时同步清空按钮状态
 let generation = 0;
 let sortMode = false;
 
@@ -883,25 +884,36 @@ async function downloadCurrent() {
   }
 }
 
-// ★★★ 修复抽搐：不再"先清空 done/failed"，只在异步查询后按需改变 ★★★
+// ★★★ 修复切歌抽搐：切歌时立即同步清空 done/failed，再异步显示正确状态 ★★★
 async function updateDlCurrentBtn() {
   const btn = document.getElementById('btn-dl-current');
   if (!btn) return;
 
-  const myToken = ++dlBtnToken;
-  const myPlayToken = playToken;
-
   const song = currentPlayingSong;
+
+  // 没有歌曲 / 没有目录时清空并返回
   if (!song || !musicDirHandle) {
-    // 只有当没有歌曲 / 没有目录时才清空
-    btn.classList.remove('done', 'failed');
+    if (dlBtnLastKey !== '__empty__') {
+      btn.classList.remove('done', 'failed');
+      dlBtnLastKey = '__empty__';
+    }
     btn.disabled = false;
     return;
   }
 
   const fileName = buildLocalFileName(song);
 
-  // 已知失败 → 直接显示失败（同步，不会闪）
+  // ★ 关键：如果是"新歌"，立即同步清空上一首的 done/failed
+  // 这样异步返回时只会看到一次 ⬇ → 📥 的变化
+  if (dlBtnLastKey !== fileName) {
+    btn.classList.remove('done', 'failed');
+    dlBtnLastKey = fileName;
+  }
+
+  const myToken = ++dlBtnToken;
+  const myPlayToken = playToken;
+
+  // 已知失败 → 同步显示失败
   if (isFailed(fileName)) {
     if (myToken !== dlBtnToken) return;
     btn.classList.remove('done');
@@ -910,21 +922,19 @@ async function updateDlCurrentBtn() {
     return;
   }
 
-  // 异步查文件（不预先清空！）
+  // 异步查询文件
   const existing = await getFileFromDir(fileName);
 
-  // 双重令牌校验，防切歌串状态
+  // 双重令牌校验
   if (myToken !== dlBtnToken || myPlayToken !== playToken) return;
+  // 又切歌了，放弃
+  if (dlBtnLastKey !== fileName) return;
 
-  // ★ 只在状态真正需要变化时才改 class，避免无意义重绘
+  // 只在需要变化时改 class
   if (existing) {
     if (!btn.classList.contains('done')) {
       btn.classList.remove('failed');
       btn.classList.add('done');
-    }
-  } else {
-    if (btn.classList.contains('done') || btn.classList.contains('failed')) {
-      btn.classList.remove('done', 'failed');
     }
   }
   btn.disabled = false;
@@ -968,6 +978,11 @@ async function toggleFavorite(s) {
     showToast(`🗑 已取消收藏：${s.name}`, 2000);
     if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
     await markCardBadge(s);
+    // 如果取消收藏的正是当前播放的歌，刷新下载按钮
+    if (currentPlayingSong && favKeyOf(currentPlayingSong) === key) {
+      dlBtnLastKey = '';   // 强制重算
+      updateDlCurrentBtn();
+    }
   } else {
     favList.unshift({
       source: s.source, id: s.id, rid: s.rid,
@@ -1871,6 +1886,10 @@ function stopAudio() {
   setNavDisabled(true, true);
   currentPlayingSong = null;
   currentPlayingUrl = '';
+  // ★ 清空下载按钮
+  dlBtnLastKey = '';
+  const btn = document.getElementById('btn-dl-current');
+  if (btn) btn.classList.remove('done', 'failed');
 }
 
 function playPrev() {

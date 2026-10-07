@@ -2103,8 +2103,8 @@ container.addEventListener('touchstart', () => {
 
 /* ★ 新增：缓冲区策略常量 */
 const SHORT_VIDEO_SECONDS  = 30 * 60; // 短视频阈值：30 分钟（秒）
-const SHORT_BUFFER_SECONDS = 1.5 * 60;  // 短视频缓冲区上限：3 分钟
-const LONG_BUFFER_SECONDS  = 3 * 60;  // 长视频缓冲区上限：5 分钟
+const SHORT_BUFFER_SECONDS = 3 * 60;  // 短视频缓冲区上限：3 分钟
+const LONG_BUFFER_SECONDS  = 5 * 60;  // 长视频缓冲区上限：5 分钟
 const DEFAULT_BITRATE      = 2000000; // 码率兜底值（bps），用于估算字节上限
 
 function startHlsPlayer(videoUrl){

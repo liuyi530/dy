@@ -2314,9 +2314,34 @@ async function boot() {
       updateDirBtnState();
       updateAllOfflineBadges();
     } else {
-      pendingDirHandle = savedHandle;
-      console.log('⏳ 目录句柄已加载，点「待授权」按钮恢复：', savedHandle.name);
-      updateDirBtnState();
+      // ★ 修改这里：自动尝试请求权限（加上延迟，减少被浏览器拦截的概率）
+      console.log('⏳ 权限未授予，尝试自动请求权限...');
+      
+      // 使用 setTimeout 异步执行，避免阻塞页面初始化
+      setTimeout(async () => {
+        try {
+          const reqPerm = await savedHandle.requestPermission({ mode: 'readwrite' });
+          if (reqPerm === 'granted') {
+            musicDirHandle = savedHandle;
+            pendingDirHandle = null;
+            console.log('✅ 权限已自动获取：', savedHandle.name);
+            updateDirBtnState();
+            updateAllOfflineBadges();
+            renderHomeView(); // 刷新主页显示离线标签
+            if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
+          } else {
+            // 用户点击了拒绝，回退到待授权状态
+            pendingDirHandle = savedHandle;
+            console.log('❌ 用户拒绝授权，保持待授权状态');
+            updateDirBtnState();
+          }
+        } catch (e) {
+          // 如果浏览器拦截了自动请求（比如必须由用户手势触发），回退到手动模式
+          console.warn('自动请求权限被拦截或失败，需要手动点击「待授权」按钮：', e);
+          pendingDirHandle = savedHandle;
+          updateDirBtnState();
+        }
+      }, 300); // 延迟 300ms，等页面渲染完再弹
     }
   } else {
     updateDirBtnState();

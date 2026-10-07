@@ -855,7 +855,7 @@ getYuUrl: function(kw){
     const pushCard = (a) => {
       const href = a.getAttribute('href') || '';
       if(!href || seen.has(href)) return;
-      if(!/\/(movie|tv|duanju)\//.test(href)) return;
+      if(!/\/(movie|tv|duanju|dongman|zongyi|tiyu)\//.test(href)) return;
       seen.add(href);
 
       const nameEl = a.querySelector('.title');
@@ -892,12 +892,12 @@ getYuUrl: function(kw){
     doc.querySelectorAll('.myui-vodbox-content a[href]').forEach(pushCard);
 
     // ② 兜底：直接找 /movie/ /tv/ /duanju/ 链接
-    if(list.length === 0){
-      doc.querySelectorAll('a[href]').forEach(a => {
-        const href = a.getAttribute('href') || '';
-        if(/\/(movie|tv|duanju)\//.test(href)) pushCard(a);
-      });
-    }
+if(list.length === 0){
+  doc.querySelectorAll('a[href]').forEach(a => {
+    const href = a.getAttribute('href') || '';
+    if(/\/(movie|tv|duanju|dongman|zongyi|tiyu)\//.test(href)) pushCard(a);
+  });
+}
 
     return {
       list,
@@ -911,72 +911,120 @@ getYuUrl: function(kw){
     };
   },
 
-  /* 详情页解析：拿 player_aaaa.url */
-  parseDetailAsync: async function(html){
-    const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
-    if(!m){
-      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+/* 详情页解析：拿整页所有线路的所有集 */
+parseDetailAsync: async function(html){
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  /* ============ ① 解析所有线路（sid -> lineName / from） ============ */
+  const lineMap = {};
+  doc.querySelectorAll('.player-box .swiper-slide[data-sid]').forEach(li => {
+    const sid = String(li.getAttribute('data-sid') || '');
+    if(!sid) return;
+    const a = li.querySelector('a.swiper-slide-text');
+    const ping = li.querySelector('.mzady-route__ping[data-from]');
+    let name = '';
+    if(a){
+      // 去掉徽章文字（●、—、检测中…、地区受限、--）
+      name = (a.textContent || '')
+        .replace(/●|—|检测中…?|地区受限|--/g, '')
+        .trim();
     }
-
-    let cfg;
-    try { cfg = JSON.parse(m[1]); }
-    catch(e){
-      console.warn('[饭搭子] player_aaaa 解析失败：', e.message);
-      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
-    }
-
-    let url = cfg.url || '';
-    try {
-      if(cfg.encrypt == 1) url = unescape(url);
-      else if(cfg.encrypt == 2) url = unescape(atob(url));
-    } catch(e){}
-
-    if(!url){
-      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
-    }
-
-    // ★ 直接是 m3u8：喂 hls.js
-    if(MEDIA_RE.test(url)){
-      return {
-        cover: '',
-        magnets: [],
-        playPageUrl: '',
-        playList: [{
-          lineName: cfg.from || '饭搭子',
-          epName: (cfg.vod_data && cfg.vod_data.vod_name) || '正片',
-          url
-        }]
-      };
-    }
-
-    // ★ 是 /share/ 分享页：走 iframe 套壳
-    if(/\/share\/[a-zA-Z0-9]+/.test(url)){
-      return {
-        cover: '',
-        magnets: [],
-        playPageUrl: '',
-        playList: [{
-          lineName: cfg.from || '饭搭子',
-          epName: (cfg.vod_data && cfg.vod_data.vod_name) || '正片',
-          url,
-          isShare: true
-        }]
-      };
-    }
-
-    // ★ 其他（官方站 v.qq.com 等）：当作外部播放页，iframe 兜底
-    return {
-      cover: '',
-      magnets: [],
-      playPageUrl: '',
-      playList: [{
-        lineName: cfg.from || '饭搭子',
-        epName: (cfg.vod_data && cfg.vod_data.vod_name) || '正片',
-        url,
-        isExternal: true
-      }]
+    lineMap[sid] = {
+      lineName: name || ('线路' + sid),
+      from: ping ? (ping.getAttribute('data-from') || '') : ''
     };
-  },
+  });
+
+  /* ============ ② 解析每线路的所有集 ============ */
+  const playList = [];
+  const seen = new Set();
+
+  // 按 sid 升序取线路面板，保证线路顺序是 1, 2, 3, 4
+  const sids = Object.keys(lineMap).sort((a, b) => Number(a) - Number(b));
+
+  sids.forEach(sid => {
+    const pane = doc.querySelector('.tab-content .tab-pane[data-sid="' + sid + '"]');
+    if(!pane) return;
+
+    const info = lineMap[sid];
+    const eps = [];
+
+    pane.querySelectorAll('.listitem a[href]').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if(!href || seen.has(href)) return;
+      seen.add(href);
+      const epName = (a.textContent || '').trim() || '正片';
+      eps.push({
+        lineName: info.lineName,
+        from: info.from,
+        sid: sid,
+        epName: epName,
+        url: abs(href, this.base)
+      });
+    });
+
+    // ★ 每线路内集数按数字正序（原站是倒序，这里反转）
+    eps.sort((x, y) => {
+      const nx = parseInt((x.epName.match(/\d+/) || ['0'])[0], 10) || 0;
+      const ny = parseInt((y.epName.match(/\d+/) || ['0'])[0], 10) || 0;
+      return nx - ny;
+    });
+
+    playList.push.apply(playList, eps);
+  });
+
+  /* ============ ③ 封面 ============ */
+  let cover = '';
+  const coverEl = doc.querySelector('.vod-detailll .img-box img');
+  if(coverEl){
+    cover = coverEl.getAttribute('src') ||
+            coverEl.getAttribute('data-original') || '';
+  }
+
+  /* ============ ④ 如果整页解析到了多线路多集，直接返回 ============ */
+  if(playList.length > 0){
+    // 每条记录里补一个 playUrl = null，方便后面缓存
+    playList.forEach(ep => { ep.playUrl = null; });
+    return { cover: abs(cover, this.base), magnets: [], playPageUrl: '', playList };
+  }
+
+  /* ============ ⑤ 兜底：整页解析不到，才用 player_aaaa.url ============ */
+  const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
+  if(!m){
+    return { cover: abs(cover, this.base), magnets: [], playPageUrl: '', playList: [] };
+  }
+
+  let cfg;
+  try { cfg = JSON.parse(m[1]); }
+  catch(e){
+    console.warn('[饭搭子] player_aaaa 解析失败：', e.message);
+    return { cover: abs(cover, this.base), magnets: [], playPageUrl: '', playList: [] };
+  }
+
+  let url = cfg.url || '';
+  try {
+    if(cfg.encrypt == 1) url = unescape(url);
+    else if(cfg.encrypt == 2) url = unescape(atob(url));
+  } catch(e){}
+
+  if(!url){
+    return { cover: abs(cover, this.base), magnets: [], playPageUrl: '', playList: [] };
+  }
+
+  return {
+    cover: abs(cover, this.base),
+    magnets: [],
+    playPageUrl: '',
+    playList: [{
+      lineName: cfg.from || '饭搭子',
+      from: cfg.from || '',
+      sid: '0',
+      epName: (cfg.vod_data && cfg.vod_data.vod_name) || '正片',
+      url: url,
+      playUrl: null
+    }]
+  };
+},
 
   parseDetail: function(html){
     return { cover: '', magnets: [], playPageUrl: '', playList: [] };
@@ -2853,43 +2901,49 @@ const html = await requestUrl(detailUrl);
     // 生成播放列表 HTML（统一走 line-group 折叠样式）
     let playListHtml = '';
     if (detailData.playList && detailData.playList.length) {
-      const groups = {};
-      detailData.playList.forEach((p, idx) => {
-        const lineName = p.lineName || '线路1';
-        if (!groups[lineName]) groups[lineName] = [];
-        groups[lineName].push({ ...p, originalIndex: idx });
-      });
+const groups = {};
+detailData.playList.forEach((p, idx) => {
+  // ★ 用 sid 分组，避免两条线路重名被合并；没 sid 才退回 lineName
+  const groupKey = p.sid || p.lineName || '线路1';
+  if (!groups[groupKey]) groups[groupKey] = [];
+  groups[groupKey].push({ ...p, originalIndex: idx });
+});
 
-      const lineKeys = Object.keys(groups);
-      playListHtml = lineKeys.map((lineName, lineIdx) => {
-        const eps = groups[lineName];
-        const isFirst = lineIdx === 0;
-        return `
-          <div class="line-group ${isFirst ? 'open' : ''}" data-line="${escapeAttr(lineName)}">
-            <div class="line-header">
-              <div class="line-title">
-                ${escapeHtml(lineName)}
-                <span class="line-count">共 ${eps.length} 集</span>
-              </div>
-              <span class="line-arrow">▼</span>
-            </div>
-            <div class="line-body">
-              ${eps.map((ep) => {
-                const epTitle = ep.epName || ('第' + (eps.indexOf(ep) + 1) + '集');
-                return `
-                  <button class="ep-btn btn-play-ep" 
-                          data-url="${escapeAttr(ep.url)}"
-                          data-index="${ep.originalIndex}"
-                          data-line="${escapeAttr(lineName)}"
-                          data-title="${escapeAttr(epTitle)}">
-                    ${escapeHtml(epTitle)}
-                  </button>
-                `;
-              }).join('')}
-            </div>
-          </div>
-        `;
-      }).join('');
+
+const lineKeys = Object.keys(groups);
+playListHtml = lineKeys.map((groupKey, lineIdx) => {
+  const eps = groups[groupKey];
+  // ★ 线路名用该组第一条记录的 lineName（同一个 sid 的 lineName 是相同的）
+  const lineName = eps[0].lineName || ('线路' + groupKey);
+  const isFirst = lineIdx === 0;
+  return `
+    <div class="line-group ${isFirst ? 'open' : ''}" data-line="${escapeAttr(lineName)}" data-sid="${escapeAttr(groupKey)}">
+      <div class="line-header">
+        <div class="line-title">
+          ${escapeHtml(lineName)}
+          <span class="line-count">共 ${eps.length} 集</span>
+        </div>
+        <span class="line-arrow">▼</span>
+      </div>
+      <div class="line-body">
+        ${eps.map((ep) => {
+          const epTitle = ep.epName || ('第' + (eps.indexOf(ep) + 1) + '集');
+          return `
+            <button class="ep-btn btn-play-ep" 
+                    data-url="${escapeAttr(ep.url)}"
+                    data-index="${ep.originalIndex}"
+                    data-line="${escapeAttr(lineName)}"
+                    data-sid="${escapeAttr(groupKey)}"
+                    data-title="${escapeAttr(epTitle)}">
+              ${escapeHtml(epTitle)}
+            </button>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}).join('');
+
     }
 
     let body = '';
@@ -3076,6 +3130,20 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
 
 updateEpBtns();
 
+// ★ 0) 官方站（v.qq.com / v.youku.com 等）→ iframe 尝试
+if (/v\.qq\.com|v\.youku\.com|www\.iqiyi\.com|www\.bilibili\.com|www\.mgtv\.com/i.test(rawUrl)) {
+    if (playerBox) playerBox.style.display = 'block';
+    if (paddr) {
+        paddr.className = 'paddr ok';
+        paddr.textContent = rawUrl;
+    }
+    playWithIframe(rawUrl);
+    $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+    toast('已尝试内嵌官方站（部分站点禁止嵌入）');
+    return;
+}
+
+
 // ★ 1) /share/ 分享页 → iframe 套壳，不走 HLS
 if (/\/share\/[a-zA-Z0-9]+/.test(rawUrl)) {
     if (playerBox) playerBox.style.display = 'block';
@@ -3168,17 +3236,25 @@ if (MEDIA_RE.test(rawUrl)) {
 async function playAdjacent(delta) {
     const list = window._currentPlayList;
     if (!list || list.length === 0) return;
-    
-    let newIndex = window._currentEpIndex + delta;
-    if (newIndex < 0 || newIndex >= list.length) {
+
+    const cur = list[window._currentEpIndex];
+    if (!cur) return;
+
+    // ★ 只取同 sid（同线路）的集
+    const sameLine = list.filter(ep => ep.sid === cur.sid);
+    const idxInLine = sameLine.indexOf(cur);
+    const target = sameLine[idxInLine + delta];
+
+    if (!target) {
         toast(delta < 0 ? '已经是第一集了' : '已经是最后一集了');
         return;
     }
 
-    const p = list[newIndex];
-    const lineName = p.lineName || '线路';
-    const epTitle = p.epName || p.title || '正片';
+    const newIndex = list.indexOf(target);
+    const lineName = target.lineName || '线路';
+    const epTitle  = target.epName || target.title || '正片';
 
+    // 更新集数按钮高亮
     $$('.ep-btn').forEach(btn => {
         if (parseInt(btn.dataset.index, 10) === newIndex) {
             btn.classList.add('active');
@@ -3194,6 +3270,7 @@ async function playAdjacent(delta) {
 
     window._currentEpIndex = newIndex;
 
+    // 展开该集所在的线路面板（一般已经在展开状态，不用动）
     const targetBtn = document.querySelector(`.ep-btn[data-index="${newIndex}"]`);
     if (targetBtn) {
         const group = targetBtn.closest('.line-group');
@@ -3203,7 +3280,7 @@ async function playAdjacent(delta) {
         }
     }
 
-    await playEpisode(p.url, newIndex, lineName, epTitle);
+    await playEpisode(target.url, newIndex, lineName, epTitle);
 }
 
 async function probePlayUrl(playPageUrl){

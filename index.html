@@ -61,6 +61,9 @@ let detailOpen = false;
 let currentDetailItem = null;
 let searchToken = 0;
 
+/* ★ 修复 1：全局持有 pendingSeek 定时器 ID，防止每次打开详情页累积 */
+let pendingSeekTimer = null;
+
 let pageState = {
   prevUrl: '',
   nextUrl: '',
@@ -76,6 +79,14 @@ let pageState = {
 };
 
 const MEDIA_RE = /\.(m3u8|mp4|flv)(\?|#|$)/i;
+
+/* ★ 修复 3：按 host 分桶存储 cookie，避免饭搭子的 cookie 污染其他源 */
+const cookiesByHost = Object.create(null);
+
+function getHostFromUrl(url){
+  try { return new URL(url).host || ''; }
+  catch(e){ return ''; }
+}
 
 /* ============================================================
    数据源
@@ -1369,6 +1380,11 @@ function destroyHls(){
     try{ hlsInstance.destroy(); }catch(e){}
     hlsInstance = null;
   }
+  /* ★ 修复 1：销毁时同时清理 pendingSeek 定时器 */
+  if(pendingSeekTimer){
+    clearInterval(pendingSeekTimer);
+    pendingSeekTimer = null;
+  }
 }
 
 /* ============================================================
@@ -1630,7 +1646,9 @@ if (swiping) {
     container.addEventListener('touchcancel', onEnd);
   }
 
-  setInterval(bind, 600);
+  /* ★ 修复 2：不再用 setInterval 轮询，暴露为全局函数，在详情页渲染后主动调用一次 */
+  window.__bindPlayerGestures = bind;
+
   document.addEventListener('fullscreenchange', () => setTimeout(bind, 100));
   document.addEventListener('webkitfullscreenchange', () => setTimeout(bind, 100));
 })();
@@ -1965,21 +1983,24 @@ function doSeek(target){
     doSeek(dragPct * video.duration);
   }
 
-  // 挂起的 seek 自动完成
-  if(!video.__pendingSeekBound){
-    video.__pendingSeekBound = true;
-    const tryPending = () => {
-      if(pendingSeek == null) return;
-      if(canSeekTo(video, pendingSeek)){
-        video.currentTime = pendingSeek;
-        pendingSeek = null;
-      }
-    };
-    video.addEventListener('progress', tryPending);
-    video.addEventListener('canplay',  tryPending);
-    video.addEventListener('seeked',   tryPending);
-    setInterval(tryPending, 500);
+  /* ★ 修复 1：挂起的 seek 自动完成——先清掉上一次遗留的定时器 */
+  if(pendingSeekTimer){
+    clearInterval(pendingSeekTimer);
+    pendingSeekTimer = null;
   }
+
+  const tryPending = () => {
+    if(pendingSeek == null) return;
+    if(canSeekTo(video, pendingSeek)){
+      video.currentTime = pendingSeek;
+      pendingSeek = null;
+    }
+  };
+  video.addEventListener('progress', tryPending);
+  video.addEventListener('canplay',  tryPending);
+  video.addEventListener('seeked',   tryPending);
+  /* 挂到一个全局变量上，下次创建播放器时会被清理 */
+  pendingSeekTimer = setInterval(tryPending, 500);
 
 /* ---------- 鼠标 ---------- */
 wrap.addEventListener('mousedown', e => {
@@ -2292,25 +2313,28 @@ function playWithIframe(iframeSrc){
   iframe.src = iframeSrc;
 }
 
-let lastReceivedCookie = '';
-
+/* ★ 修复 3：按 host 隔离 cookie */
 async function fetchViaRelay(url, opts, timeout){
   const target = CONFIG.relay + encodeURIComponent(url);
   const options = opts || {};
   const headers = options.headers || {};
 
-  if (lastReceivedCookie) {
-    headers['x-target-cookie'] = lastReceivedCookie;
+  /* 取当前请求目标的 host，按 host 分桶使用 cookie */
+  const host = getHostFromUrl(url);
+  const cookie = host ? cookiesByHost[host] : '';
+  if (cookie) {
+    headers['x-target-cookie'] = cookie;
   }
   options.headers = headers;
 
   const r = await fetchWithTimeout(target, options, timeout);
 
+  /* 收到 Set-Cookie 时，只写入对应 host 的桶 */
   const setCookie = r.headers.get('x-set-cookie');
-  if (setCookie) {
+  if (setCookie && host) {
     const m = setCookie.match(/cdndefend_js_cookie=[^;]+/);
     if (m) {
-      lastReceivedCookie = m[0];
+      cookiesByHost[host] = m[0];
     }
   }
 
@@ -2879,12 +2903,24 @@ else if(currentSource === 'juhe'){
 
 else {
 
+  /* ★ 修复 4：饭搭子优先用 sid=5，失败自动降级到原始 href */
+  let detailUrl = item.href;
+  if (currentSource === 'fandazi' && item.hrefSid5) {
+    detailUrl = item.hrefSid5;
+  }
 
-  // ★ 饭搭子：优先用 sid=5（采集线路，通常有 /share/）
-const detailUrl = (currentSource === 'fandazi' && item.hrefSid5)
-  ? item.hrefSid5
-  : item.href;
-const html = await requestUrl(detailUrl);
+  let html;
+  try {
+    html = await requestUrl(detailUrl);
+  } catch(e){
+    if (detailUrl !== item.href) {
+      console.warn('[饭搭子] sid=5 请求失败，降级到原始 href：', e.message);
+      html = await requestUrl(item.href);
+    } else {
+      throw e;
+    }
+  }
+
   if(!detailOpen) return;
   const src = SOURCES[currentSource];
   if(typeof src.parseDetailAsync === 'function'){
@@ -3010,6 +3046,11 @@ playListHtml = lineKeys.map((groupKey, lineIdx) => {
 $('#dBody').innerHTML = body;
 
 setupVideoControls();   // ★ 新增这一行
+
+/* ★ 修复 2：详情页渲染后，主动绑定一次手势，替代原 setInterval 轮询 */
+if (window.__bindPlayerGestures) {
+  window.__bindPlayerGestures();
+}
 
 window._currentPlayList = detailData.playList || [];
     

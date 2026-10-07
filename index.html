@@ -61,7 +61,7 @@ let detailOpen = false;
 let currentDetailItem = null;
 let searchToken = 0;
 
-/* ★ 修复 1：全局持有 pendingSeek 定时器 ID，防止每次打开详情页累积 */
+/* 全局持有 pendingSeek 定时器 ID，防止每次打开详情页累积 */
 let pendingSeekTimer = null;
 
 let pageState = {
@@ -73,14 +73,13 @@ let pageState = {
   totalPages: 1,
   totalCount: 0,
   currentKeyword: '',
-  // 飞流专用
   flixLastRank: null,
   flixAllList: []
 };
 
 const MEDIA_RE = /\.(m3u8|mp4|flv)(\?|#|$)/i;
 
-/* ★ 修复 3：按 host 分桶存储 cookie，避免饭搭子的 cookie 污染其他源 */
+/* 按 host 分桶存储 cookie，避免不同源之间的 cookie 污染 */
 const cookiesByHost = Object.create(null);
 
 function getHostFromUrl(url){
@@ -248,26 +247,20 @@ getSearchUrl: function(kw, page, sort){
       });
     });
 
-  // ★ 解析分页信息
   let currentPage = 1, totalPages = 1, totalCount = list.length;
 
-  // ① 从 #pageData 拿 currentpage / totalpages
   const pd = doc.querySelector('#pageData');
   if(pd){
     currentPage = parseInt(pd.dataset.currentpage || '1', 10) || 1;
     totalPages  = parseInt(pd.dataset.totalpages  || '1', 10) || 1;
   }
 
-  // ② 从搜索摘要里拿"共 N 个结果"
-  const sumEl = doc.querySelector('.search-summary em');
-  // .search-summary 里第一个 em 是关键词，第二个 em 是结果数
   const sumEms = doc.querySelectorAll('.search-summary em');
   if(sumEms.length >= 2){
     const n = parseInt(sumEms[1].textContent.trim(), 10);
     if(!isNaN(n)) totalCount = n;
   }
 
-  // ③ 拼上一页 / 下一页 URL
   const kw = pageState.currentKeyword || '';
   const sort = 'hits';
   const baseSearch = this.base + '/search?keyword=' + encodeURIComponent(kw) + '&sort=' + sort;
@@ -297,13 +290,11 @@ getSearchUrl: function(kw, page, sort){
 
     let cover = abs(pickAttr(doc, '.detail-card img, .vod-detail img, .detail-pic img, img', 'src'), this.base);
 
-    // 线路名（按 source-tab 出现顺序）
     const lineNames = [];
     doc.querySelectorAll('.source-tabs .source-tab').forEach(btn => {
       lineNames.push((btn.textContent || '').trim() || ('线路' + (lineNames.length + 1)));
     });
 
-    // 每线路集数（按 source-panel 顺序）
     const playList = [];
     const seen = new Set();
 
@@ -487,7 +478,6 @@ ikanbot: {
     const list = [];
     const seen = new Set();
 
-    /* ---------- 解析每个 .media 卡片 ---------- */
     doc.querySelectorAll('.media').forEach(media => {
       const a = media.querySelector('a.cover-link');
       if(!a) return;
@@ -504,7 +494,6 @@ ikanbot: {
       if(img){
         cover = img.getAttribute('data-src') || img.getAttribute('src') || '';
       }
-      // 忽略懒加载占位图
       if(cover && cover.indexOf('data:image') === 0) cover = '';
 
       list.push({
@@ -516,7 +505,6 @@ ikanbot: {
       });
     });
 
-  /* ---------- 解析分页：仅保留"下一页"用于"加载更多" ---------- */
   let hasMore = false;
   let nextUrl = '';
 
@@ -560,7 +548,6 @@ ikanbot: {
     const playList = [];
     const seen = new Set();
 
-    /* ---------- 优先：HTML 里已含 #lineContent（老版页面） ---------- */
     doc.querySelectorAll('#lineContent > li').forEach(group => {
       const lineNameEl = group.querySelector('.line-name');
       const lineName = lineNameEl ? lineNameEl.textContent.trim() : '线路';
@@ -578,15 +565,12 @@ ikanbot: {
     return { cover: '', magnets: [], playPageUrl: '', playList };
   },
 
-  /* ---------- 新版页面：HTML 里 lineContent 为空，需要走接口 ---------- */
   parseDetailAsync: async function(html){
-    /* ① 尝试先按老版 HTML 解析（有些页面服务端直接吐数据） */
     const fallback = this.parseDetail(html);
     if(fallback.playList && fallback.playList.length > 0){
       return fallback;
     }
 
-    /* ② 从 HTML 里抠出 current_id / e_token / mtype */
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const idEl    = doc.querySelector('#current_id');
     const tksEl   = doc.querySelector('#e_token');
@@ -600,7 +584,6 @@ ikanbot: {
       return { cover: '', magnets: [], playPageUrl: '', playList: [] };
     }
 
-    /* ③ 计算 v_tks（复刻 ikanbot 内联的 get_tks 算法） */
     const vTks = (function(_id, _token){
       if(!_id || !_token) return '';
       const last4 = _id.substring(_id.length - 4);
@@ -620,7 +603,6 @@ ikanbot: {
       return { cover: '', magnets: [], playPageUrl: '', playList: [] };
     }
 
-    /* ④ 请求 /api/getResN */
     const apiUrl = this.base + '/api/getResN'
       + '?videoId=' + encodeURIComponent(videoId)
       + '&mtype='   + encodeURIComponent(mtype)
@@ -645,7 +627,6 @@ ikanbot: {
       return { cover: '', magnets: [], playPageUrl: '', playList: [] };
     }
 
-    /* ⑤ 解析 list，展开成 { lineName, epName, url } */
     const playList = [];
     const seen = new Set();
 
@@ -655,7 +636,6 @@ ikanbot: {
 
       let resArr = [];
       try{
-        // resData 是字符串形式的数组，用 new Function 解析
         resArr = (new Function('return (' + item.resData + ');'))();
       }catch(e){
         console.warn('ikanbot resData 解析失败：', e.message);
@@ -679,7 +659,6 @@ ikanbot: {
           if(!urlName || !urlLink) return;
           if(!/m3u8$/i.test(urlLink)) return;
 
-// mtype == 1 且 newName 非数字时，用 newName 覆盖集名（对齐 ikanbot 官方逻辑）
 if(newName && isNaN(newName) && mtype && mtype === '1'){
   urlName = newName;
 }
@@ -707,7 +686,6 @@ if(newName && isNaN(newName) && mtype && mtype === '1'){
     base: 'https://www.flixflop.com',
     api: 'https://www.flixflop.com/api',
 
-    /* 搜索：直接调 API（第 1 页 rank=0） */
     getSearchUrl: function(kw){
       return this.api + '/v1/explore/search?query=' + encodeURIComponent(kw) + '&rank=0';
     },
@@ -721,12 +699,10 @@ if(newName && isNaN(newName) && mtype && mtype === '1'){
       };
     },
 
-    /* 翻页：用 rank 游标 */
     getNextPageUrl: function(kw, lastRank){
       return this.api + '/v1/explore/search?query=' + encodeURIComponent(kw) + '&rank=' + lastRank;
     },
 
-    /* 解析 JSON（搜索结果） */
     parseList: function(text){
       let obj;
       try { obj = typeof text === 'string' ? JSON.parse(text) : text; }
@@ -740,7 +716,6 @@ _parseListFromJson: function(obj){
   const data = obj.data || [];
   const list = data
     .filter(it => {
-      // ★ 只过滤"电影解说"
       const cat = String(it.category || '');
       const title = String(it.title || '');
       if (cat === '电影解说') return false;
@@ -759,7 +734,6 @@ _parseListFromJson: function(obj){
       _sources: it.sources || []
     }));
 
-  // ★ 分页游标和 hasMore 用原始 data（不能过滤，否则翻页会错）
   const lastRank = data.length ? String(data[data.length - 1].rank) : null;
 
   return {
@@ -774,12 +748,10 @@ _parseListFromJson: function(obj){
   };
 },
 
-    /* 详情：飞流在搜索结果里已经带了 sources，这里直接返回 */
     parseDetail: function(html){
       return { cover:'', magnets:[], playPageUrl:'', playList:[] };
     },
 
-    /* 飞流专用：从 item._sources 展开播放列表 */
     buildPlayListFromSources: function(sources){
       const SOURCE_NAMES = {
         '204817109715256315': '大陆',
@@ -811,7 +783,6 @@ juhe: {
   name: '聚合源',
   _isAppleCMS: true,
 
-/* 内部子源列表 */
 _apis: [
   { name: '火狐', api: 'https://hhzyapi.com/api.php/provide/vod/' },
   { name: '百度', api: 'https://api.apibdzy.com/api.php/provide/vod/' },
@@ -819,7 +790,6 @@ _apis: [
   { name: '极速', api: 'https://jszyapi.com/api.php/provide/vod/' }
 ],
 
-  /* 搜索 URL（占位，实际在 doSearch 里特判） */
   getSearchUrl: function(kw){ return this._apis[0].api; },
   getSearchUrlGet: function(kw){ return this._apis[0].api; },
   getSearchOptions: function(kw){
@@ -830,7 +800,6 @@ _apis: [
     };
   },
 
-  /* 这两个由 doSearch 特判处理，这里留空壳 */
   parseList: function(text){ return parseAppleCMSList(text, this); },
   parseDetail: function(text){ return parseAppleCMSDetail(text); }
 },
@@ -852,12 +821,10 @@ getSearchOptions: function(kw){
   return { method: 'GET' };
 },
 
-/* 兼容方法：和 getSearchUrl 一样，兜底逻辑可复用 */
 getYuUrl: function(kw){
   return this.getSearchUrl(kw);
 },
 
-  /* 解析搜索结果页：兼容 /search 骨架页 + /yu- SEO 页 */
   parseList: function(html){
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const list = [];
@@ -899,10 +866,8 @@ getYuUrl: function(kw){
       });
     };
 
-    // ① 标准卡片
     doc.querySelectorAll('.myui-vodbox-content a[href]').forEach(pushCard);
 
-    // ② 兜底：直接找 /movie/ /tv/ /duanju/ 链接
 if(list.length === 0){
   doc.querySelectorAll('a[href]').forEach(a => {
     const href = a.getAttribute('href') || '';
@@ -922,11 +887,9 @@ if(list.length === 0){
     };
   },
 
-/* 详情页解析：拿整页所有线路的所有集 */
 parseDetailAsync: async function(html){
   const doc = new DOMParser().parseFromString(html, 'text/html');
 
-  /* ============ ① 解析所有线路（sid -> lineName / from） ============ */
   const lineMap = {};
   doc.querySelectorAll('.player-box .swiper-slide[data-sid]').forEach(li => {
     const sid = String(li.getAttribute('data-sid') || '');
@@ -935,7 +898,6 @@ parseDetailAsync: async function(html){
     const ping = li.querySelector('.mzady-route__ping[data-from]');
     let name = '';
     if(a){
-      // 去掉徽章文字（●、—、检测中…、地区受限、--）
       name = (a.textContent || '')
         .replace(/●|—|检测中…?|地区受限|--/g, '')
         .trim();
@@ -946,11 +908,9 @@ parseDetailAsync: async function(html){
     };
   });
 
-  /* ============ ② 解析每线路的所有集 ============ */
   const playList = [];
   const seen = new Set();
 
-  // 按 sid 升序取线路面板，保证线路顺序是 1, 2, 3, 4
   const sids = Object.keys(lineMap).sort((a, b) => Number(a) - Number(b));
 
   sids.forEach(sid => {
@@ -974,7 +934,6 @@ parseDetailAsync: async function(html){
       });
     });
 
-    // ★ 每线路内集数按数字正序（原站是倒序，这里反转）
     eps.sort((x, y) => {
       const nx = parseInt((x.epName.match(/\d+/) || ['0'])[0], 10) || 0;
       const ny = parseInt((y.epName.match(/\d+/) || ['0'])[0], 10) || 0;
@@ -984,7 +943,6 @@ parseDetailAsync: async function(html){
     playList.push.apply(playList, eps);
   });
 
-  /* ============ ③ 封面 ============ */
   let cover = '';
   const coverEl = doc.querySelector('.vod-detailll .img-box img');
   if(coverEl){
@@ -992,14 +950,11 @@ parseDetailAsync: async function(html){
             coverEl.getAttribute('data-original') || '';
   }
 
-  /* ============ ④ 如果整页解析到了多线路多集，直接返回 ============ */
   if(playList.length > 0){
-    // 每条记录里补一个 playUrl = null，方便后面缓存
     playList.forEach(ep => { ep.playUrl = null; });
     return { cover: abs(cover, this.base), magnets: [], playPageUrl: '', playList };
   }
 
-  /* ============ ⑤ 兜底：整页解析不到，才用 player_aaaa.url ============ */
   const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
   if(!m){
     return { cover: abs(cover, this.base), magnets: [], playPageUrl: '', playList: [] };
@@ -1049,11 +1004,6 @@ parseDetailAsync: async function(html){
 /* ============================================================
    苹果CMS 通用解析器（type:1 标准接口）
    ============================================================ */
-
-/**
- * 解析苹果CMS 搜索结果（JSON）
- * 返回结构：{ list, prevUrl, nextUrl, hasPrev, hasMore, currentPage, totalPages, totalCount }
- */
 function parseAppleCMSList(text, src){
   let data;
   try{ data = JSON.parse(text); }
@@ -1075,7 +1025,6 @@ function parseAppleCMSList(text, src){
       region: item.vod_area    || '',
       status: item.vod_remarks || '',
       cover:  abs(item.vod_pic || '', base),
-      // ★ 详情页要用 vod_id 拼 URL
       _appleCMSVodId: vodId,
       href: base + '?ac=videolist&ids=' + encodeURIComponent(vodId)
     };
@@ -1093,10 +1042,6 @@ function parseAppleCMSList(text, src){
   };
 }
 
-/**
- * 解析苹果CMS 详情（JSON）
- * 返回结构：{ cover, magnets:[], playPageUrl:'', playList:[{lineName, epName, url}] }
- */
 function parseAppleCMSDetail(text){
   let data;
   try{ data = JSON.parse(text); }
@@ -1114,7 +1059,6 @@ function parseAppleCMSDetail(text){
   const froms = String(vod.vod_play_from || '').split('$$$').map(s => s.trim());
   const urls  = String(vod.vod_play_url  || '').split('$$$');
 
-  // ★ 屏蔽自家云播（hhyun 等，播放页不是直链）
   const BLOCKED = ['hhyun', 'yun', 'yunbo', 'cloud', 'hlsyun'];
   const isBlocked = (name) => {
     if(!name) return false;
@@ -1179,8 +1123,6 @@ function abs(url, base){
   return base + (url.startsWith('/') ? '' : '/') + url;
 }
 
-/* ---------- ★ B 方案小工具 ---------- */
-/* 依次尝试多个选择器，返回第一个非空文本 */
 function pickText(scope, selectors){
   if(!scope) return '';
   const list = String(selectors).split(',').map(s => s.trim());
@@ -1194,7 +1136,6 @@ function pickText(scope, selectors){
   return '';
 }
 
-/* 依次尝试多个选择器 + 多个属性，返回第一个非空值 */
 function pickAttr(scope, selectors, attrs){
   if(!scope) return '';
   const selList  = String(selectors).split(',').map(s => s.trim());
@@ -1209,9 +1150,6 @@ function pickAttr(scope, selectors, attrs){
   }
   return '';
 }
-
-
-/* ---------- ★ B 方案小工具结束 ---------- */
 
 function fetchWithTimeout(url, options, timeout){
   timeout = timeout || CONFIG.timeout;
@@ -1324,7 +1262,6 @@ function extractPlayerIframe(html){
     return candidates[i];
   }
 
-  const pm = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*;?\s*(?:<\/script>|$)/);
   return '';
 }
 
@@ -1356,7 +1293,6 @@ function extractM3U8FromIframeUrl(iframeUrl){
 }
 
 
-/* ---------- 禁用视频元素的长按系统菜单（复制视频帧 / 画中画等） ---------- */
 document.addEventListener('contextmenu', function(e){
   if(e.target && e.target.tagName === 'VIDEO'){
     e.preventDefault();
@@ -1380,7 +1316,6 @@ function destroyHls(){
     try{ hlsInstance.destroy(); }catch(e){}
     hlsInstance = null;
   }
-  /* ★ 修复 1：销毁时同时清理 pendingSeek 定时器 */
   if(pendingSeekTimer){
     clearInterval(pendingSeekTimer);
     pendingSeekTimer = null;
@@ -1388,14 +1323,9 @@ function destroyHls(){
 }
 
 /* ============================================================
-   整合修正版：手势控制 + 全屏/横屏切换
-   1. 左右 30% 双击：快进 / 快退 10 秒
-   2. 全屏下半屏滑动：调节播放进度（实时 UI + Toast）
-   3. 单击屏幕：延迟 300ms 切换控制面板显示/隐藏（避免与双击冲突）
-   4. 包含兼容多端的全屏/横屏切换逻辑 (toggleFullscreen)
+   手势控制 + 全屏/横屏切换
    ============================================================ */
 (function initDoubleTapAndSwipeSeek(){
-    // ★ 新增：控制栏 2 秒自动隐藏
 let hideCtrlTimer = null;
 function cancelHideTimer(){
   if(hideCtrlTimer){
@@ -1427,7 +1357,6 @@ function startHideTimer(){
     return m + ':' + (ss < 10 ? '0' : '') + ss;
   }
 
-  // 1. 兼容多端的全屏状态判定
   function isFullscreen() {
     return !!(
       document.fullscreenElement ||
@@ -1437,7 +1366,6 @@ function startHideTimer(){
     );
   }
 
-  // 2. 切换控制面板显示/隐藏（控制 UI 显隐）
   function toggleControls() {
     const container = document.getElementById('playerContainer');
     if (container) {
@@ -1445,9 +1373,6 @@ function startHideTimer(){
     }
   }
 
-
-
-  /* ---------- 双击快进/快退与提示 ---------- */
   function showJumpToast(side, delta, target){
     let el = document.getElementById('jumpToast');
     if(!el){
@@ -1468,6 +1393,7 @@ function startHideTimer(){
     el._t = setTimeout(() => { el.style.opacity = '0'; }, 800);
   }
 
+  /* ★★★ 修复：双击快进/回退后，立即手动刷新进度条 + 时间文字 ★★★ */
   function handleDoubleTap(e){
     if(!isPlayerVisible()) return;
     const video = getVideo();
@@ -1489,16 +1415,25 @@ function startHideTimer(){
     if(target > video.duration) target = video.duration;
 
     video.currentTime = target;
+
+    /* ★ 立即刷新 UI，不再等 timeupdate 事件 */
+    const ui = getUI();
+    if (ui && ui.fill && ui.dot && ui.timeEl && video.duration > 0) {
+      const pct = (target / video.duration) * 100;
+      ui.fill.style.width = pct + '%';
+      ui.dot.style.left = pct + '%';
+      ui.timeEl.textContent = fmt(target) + ' / ' + fmt(video.duration);
+    }
+
     showJumpToast(side, delta, target);
   }
 
-  /* ---------- 统一的手势状态与全屏 Seek ---------- */
   let touchTimer = null;
   let lastTapTime = 0;
   let startX = 0, startY = 0;
   let isRealMove = false;
   let swiping = false;
-  let swipeActivated = false;   // ★ 本次触摸是否已激活控制栏显示
+  let swipeActivated = false;
   let startCurrent = 0, duration = 0;
   let swipeTarget = null;
 
@@ -1509,7 +1444,6 @@ function startHideTimer(){
 function onStart(e){
   if (e.touches.length !== 1) return;
 
-  // ★ 新增：触摸点在控制栏（进度条 + 按钮行）内时，不触发全屏滑动 seek
   if (e.target && e.target.closest('.video-ctrl')) {
     swiping = false;
     isRealMove = false;
@@ -1523,7 +1457,6 @@ function onStart(e){
   isRealMove = false;
   swiping = false;
 
-// 仅在全屏且下半屏触发 Seek 滑动
 if (isFullscreen()) {
   const video = getVideo();
   const container = document.getElementById('playerContainer');
@@ -1535,7 +1468,7 @@ if ((t.clientY - rect.top) >= rect.height * 0.5) {
   startCurrent = video.currentTime;
   duration = video.duration;
   swipeTarget = null;
-  swipeActivated = false;   // ★ 首次按下还没激活（等真正移动才显示控制栏）
+  swipeActivated = false;
 }
   }
 }
@@ -1560,7 +1493,6 @@ if ((t.clientY - rect.top) >= rect.height * 0.5) {
 
       swipeTarget = target;
 
-// ★ 新增：真正滑动时才激活控制栏显示 + 取消隐藏倒计时
 if (!swipeActivated) {
   swipeActivated = true;
   const c = document.getElementById('playerContainer');
@@ -1584,10 +1516,9 @@ if (!swipeActivated) {
   }
 
   function onEnd(e){
-    // 1. 如果点击或触摸的目标在控制栏内部（包括进度条、播放按钮等），直接返回，不触发显隐切换
 if (e.target && e.target.closest('.video-ctrl')) {
   if (swiping) swiping = false;
-  window._swiping = false;              // ← 新增这一行
+  window._swiping = false;
   isRealMove = false;
   return;
 }
@@ -1601,14 +1532,12 @@ if (swiping) {
   }
   swipeTarget = null;
 
-  // ★ 只有真正滑动过才启动 2 秒倒计时；单纯点击不启动
   if (swipeActivated) {
     swipeActivated = false;
     startHideTimer();
   }
 }
 
-    // 若发生了位移滑动，放弃点击与双击判定
     if (isRealMove) {
       if (touchTimer) {
         clearTimeout(touchTimer);
@@ -1617,7 +1546,6 @@ if (swiping) {
       return;
     }
 
-    // 单击 / 双击防冲突逻辑
     const now = Date.now();
     if (now - lastTapTime < 300) {
       clearTimeout(touchTimer);
@@ -1634,7 +1562,6 @@ if (swiping) {
   }
 
 
-  /* ---------- 事件绑定 ---------- */
   function bind(){
     const container = document.getElementById('playerContainer');
     if(!container || container.__gestureBound) return;
@@ -1646,7 +1573,6 @@ if (swiping) {
     container.addEventListener('touchcancel', onEnd);
   }
 
-  /* ★ 修复 2：不再用 setInterval 轮询，暴露为全局函数，在详情页渲染后主动调用一次 */
   window.__bindPlayerGestures = bind;
 
   document.addEventListener('fullscreenchange', () => setTimeout(bind, 100));
@@ -1710,7 +1636,6 @@ if (swiping) {
     }
   }
 
-  /* ---------- 兜底：重力感应 + CSS 旋转 ---------- */
   let flipDeg = 0, lastSide = null, lastAngle = 0;
   let systemRotates = false, watching = false;
 
@@ -1764,13 +1689,11 @@ if (swiping) {
     screen.orientation.addEventListener('change', onScreenOrientationChange);
   }
 
-  /* ---------- 对外：切换全屏 ---------- */
   async function toggle(){
     const container = getContainer();
     if(!container) return;
 
     if(!isFullscreen()){
-      /* 竖屏 → 全屏横屏 */
       try{ await requestFs(container); }catch(e){ return; }
       await lockLandscape();
       systemRotates = false;
@@ -1778,11 +1701,10 @@ if (swiping) {
       lastSide = null; flipDeg = 0; applyFlip(0);
       startFlipFallback();
     } else {
-      /* 全屏横屏 → 退出 → 竖屏 */
       stopFlipFallback();
       systemRotates = false;
-      unlockOrientation(); // 先解锁方向
-      await exitFs();      // 再退出全屏
+      unlockOrientation();
+      await exitFs();
     }
   }
 
@@ -1793,8 +1715,7 @@ if (swiping) {
 
 
 /* ============================================================
-   自定义播放器控件（不依赖原生全屏）
-   进度条：拖动中只更新 UI，松手才 seek，seek 不了就挂起等缓冲
+   自定义播放器控件
    ============================================================ */
 function setupVideoControls(){
   const container = document.getElementById('playerContainer');
@@ -1825,17 +1746,15 @@ function setupVideoControls(){
   const timeEl     = ctrl.querySelector('#vTime');
   const rateBtn    = ctrl.querySelector('#vRate');
   const fsBtn      = ctrl.querySelector('#vFs');
-  const playedEl   = ctrl.querySelector('#progressPlayed');   // 绿色播放层
-  const bufferedEl = ctrl.querySelector('#progressBuffered'); // 红色缓冲层
+  const playedEl   = ctrl.querySelector('#progressPlayed');
+  const bufferedEl = ctrl.querySelector('#progressBuffered');
   const dot        = ctrl.querySelector('#progressDot');
   const wrap       = ctrl.querySelector('.progress-wrap');
-  // 暴露给全屏滑动手势复用
   window._playerUI = { fill: playedEl, buffered: bufferedEl, dot, timeEl, video };
 
-// 1. 播放进度更新 (绿色层)
 function updatePlayedUI() {
-  if (window._swiping) return;                                 // ← 新增：全屏滑动时不覆盖
-  if (typeof isDragging !== 'undefined' && isDragging) return; // 拖动时不覆盖
+  if (window._swiping) return;
+  if (typeof isDragging !== 'undefined' && isDragging) return;
   if (video.duration && isFinite(video.duration)) {
     const pct = (video.currentTime / video.duration) * 100;
     playedEl.style.width = pct + '%';
@@ -1844,7 +1763,6 @@ function updatePlayedUI() {
   }
 }
 
-  // 2. 缓冲进度更新 (红色层)
   function updateBufferedUI() {
     if (!video || !video.duration || !isFinite(video.duration) || !video.buffered || !video.buffered.length) return;
 
@@ -1866,7 +1784,6 @@ function updatePlayedUI() {
     bufferedEl.style.width = pct + '%';
   }
 
-// 绑定播放与缓冲事件
 video.addEventListener('timeupdate', updatePlayedUI);
 video.addEventListener('progress', updateBufferedUI);
 video.addEventListener('seeking', updateBufferedUI);
@@ -1878,53 +1795,38 @@ function fmt(s){
   return m + ':' + (ss < 10 ? '0' : '') + ss;
 }
 
-
-  /* ---------- 播放 / 暂停 ---------- */
   playBtn.onclick = () => { video.paused ? video.play() : video.pause(); };
   video.addEventListener('play',  () => { playBtn.textContent = '暂停'; });
   video.addEventListener('pause', () => { playBtn.textContent = '播放'; });
 
-  /* ---------- 状态 ---------- */
   let dragPct     = 0;
   let isDragging  = false;
   let pendingSeek = null;
-  // ★ 新增：相对滑动模式（非圆点拖动）
-    let relativeDrag = false;
-    let relStartX = 0;
-    let relStartPct = 0;
+  let relativeDrag = false;
+  let relStartX = 0;
+  let relStartPct = 0;
 
-// 假设您的全局/上下文中有控制滑动状态的变量：
-// swiping (是否正在屏幕滑动) 和 isDragging (是否正在拖拽进度条)
-
-
-
-
-  // ★ 用绿色细线（progress-bg）的真实矩形算百分比，避免偏移
 function getPctFromX(clientX){
   const bg = wrap.querySelector('.progress-bg');
   const r = (bg ? bg : wrap).getBoundingClientRect();
   return Math.min(1, Math.max(0, (clientX - r.left) / r.width));
 }
 
-// ★ 新增：判断触点是否在细线上下一定范围内（含触摸容差）
 function isInTrackZone(clientY){
   const bg = wrap.querySelector('.progress-bg');
   const r = (bg ? bg : wrap).getBoundingClientRect();
-  const padding = 12; // 上下容差（px），方便手指点到细线
+  const padding = 12;
   return clientY >= r.top - padding && clientY <= r.bottom + padding;
 }
-// 细线判断结束
 
-// ★ 新增：判断触点是否在进度条圆点上
 function isOnDot(clientX, clientY){
   const dotEl = ctrl.querySelector('#progressDot');
   if(!dotEl) return false;
   const r = dotEl.getBoundingClientRect();
-  const padding = 14; // 圆点点击扩大范围
+  const padding = 14;
   return clientX >= r.left - padding && clientX <= r.right + padding &&
          clientY >= r.top - padding && clientY <= r.bottom + padding;
 }
-
 
   function updateDragUI(clientX){
     const pct = getPctFromX(clientX);
@@ -1935,7 +1837,6 @@ function isOnDot(clientX, clientY){
       timeEl.textContent = fmt(pct * video.duration) + ' / ' + fmt(video.duration);
     }
   }
-  // ★ 新增：非圆点相对滑动时的 UI 更新
 function updateRelativeDragUI(clientX){
   const bg = wrap.querySelector('.progress-bg');
   const bgW = bg ? bg.getBoundingClientRect().width : wrap.getBoundingClientRect().width;
@@ -1951,7 +1852,6 @@ function updateRelativeDragUI(clientX){
   }
 }
 
-
   function canSeekTo(v, t){
     if(!v.seekable || v.seekable.length === 0) return false;
     for(let i = 0; i < v.seekable.length; i++){
@@ -1962,12 +1862,11 @@ function updateRelativeDragUI(clientX){
 
 function doSeek(target){
   const pct = video.duration ? target / video.duration : 0;
-  playedEl.style.width = pct * 100 + '%';   // ✅ 用 playedEl
+  playedEl.style.width = pct * 100 + '%';
   dot.style.left       = pct * 100 + '%';
     if(video.duration && isFinite(video.duration)){
       timeEl.textContent = fmt(target) + ' / ' + fmt(video.duration);
     }
-    // ② 能 seek 就立刻跳，不能就挂起
     if(canSeekTo(video, target)){
       video.currentTime = target;
       pendingSeek = null;
@@ -1983,7 +1882,6 @@ function doSeek(target){
     doSeek(dragPct * video.duration);
   }
 
-  /* ★ 修复 1：挂起的 seek 自动完成——先清掉上一次遗留的定时器 */
   if(pendingSeekTimer){
     clearInterval(pendingSeekTimer);
     pendingSeekTimer = null;
@@ -1999,19 +1897,16 @@ function doSeek(target){
   video.addEventListener('progress', tryPending);
   video.addEventListener('canplay',  tryPending);
   video.addEventListener('seeked',   tryPending);
-  /* 挂到一个全局变量上，下次创建播放器时会被清理 */
   pendingSeekTimer = setInterval(tryPending, 500);
 
 /* ---------- 鼠标 ---------- */
 wrap.addEventListener('mousedown', e => {
-  if (!isInTrackZone(e.clientY)) return;   // ★ 只响应细线区域
+  if (!isInTrackZone(e.clientY)) return;
 
   if (isOnDot(e.clientX, e.clientY)) {
-    // ① 按在圆点上：原有拖动模式
     isDragging = true;
     updateDragUI(e.clientX);
   } else {
-    // ② 按在非圆点：相对滑动模式
     relativeDrag = true;
     relStartX = e.clientX;
     relStartPct = (video.duration && isFinite(video.duration))
@@ -2020,15 +1915,14 @@ wrap.addEventListener('mousedown', e => {
   }
 });
 
-
 window.addEventListener('mousemove', e => {
   if(isDragging) updateDragUI(e.clientX);
-  else if(relativeDrag) updateRelativeDragUI(e.clientX);   // ★ 新增
+  else if(relativeDrag) updateRelativeDragUI(e.clientX);
 });
 window.addEventListener('mouseup', () => {
   if(isDragging){
     commitDrag();
-  } else if(relativeDrag){                                  // ★ 新增
+  } else if(relativeDrag){
     relativeDrag = false;
     if(video.duration && isFinite(video.duration)){
       doSeek(dragPct * video.duration);
@@ -2038,16 +1932,14 @@ window.addEventListener('mouseup', () => {
 
 /* ---------- 触摸进度条 ---------- */
 wrap.addEventListener('touchstart', e => {
-  e.stopPropagation(); // 阻止冒泡给容器，防止触发 toggleControls
+  e.stopPropagation();
   const t = e.touches[0];
-  if (!isInTrackZone(t.clientY)) return;   // ★ 只响应细线区域
+  if (!isInTrackZone(t.clientY)) return;
 
   if (isOnDot(t.clientX, t.clientY)) {
-    // ① 按在圆点上：原有拖动模式
     isDragging = true;
     updateDragUI(t.clientX);
   } else {
-    // ② 按在非圆点：相对滑动模式
     relativeDrag = true;
     relStartX = t.clientX;
     relStartPct = (video.duration && isFinite(video.duration))
@@ -2056,7 +1948,6 @@ wrap.addEventListener('touchstart', e => {
   }
 }, { passive: true });
 
-// 阻止 click 事件冒泡，防止点击进度条时触发视频容器的 toggleControls
 wrap.addEventListener('click', e => {
   e.stopPropagation();
 });
@@ -2065,7 +1956,7 @@ wrap.addEventListener('touchmove', e => {
   if(isDragging){
     updateDragUI(e.touches[0].clientX);
     if(e.cancelable) e.preventDefault();
-  } else if(relativeDrag){                                   // ★ 新增
+  } else if(relativeDrag){
     updateRelativeDragUI(e.touches[0].clientX);
     if(e.cancelable) e.preventDefault();
   }
@@ -2074,7 +1965,7 @@ wrap.addEventListener('touchmove', e => {
 wrap.addEventListener('touchend', () => {
   if(isDragging){
     commitDrag();
-  } else if(relativeDrag){                                   // ★ 新增
+  } else if(relativeDrag){
     relativeDrag = false;
     if(video.duration && isFinite(video.duration)){
       doSeek(dragPct * video.duration);
@@ -2084,7 +1975,7 @@ wrap.addEventListener('touchend', () => {
 wrap.addEventListener('touchcancel', () => {
   if(isDragging){
     commitDrag();
-  } else if(relativeDrag){                                   // ★ 新增
+  } else if(relativeDrag){
     relativeDrag = false;
     if(video.duration && isFinite(video.duration)){
       doSeek(dragPct * video.duration);
@@ -2101,12 +1992,10 @@ wrap.addEventListener('touchcancel', () => {
     rateBtn.textContent = rates[rateIdx] + 'x';
   };
 
-/* ---------- 全屏 ---------- */
 fsBtn.onclick = () => {
-  window.toggleFullscreen();   // 调用新的全屏 / 横屏 / 重力翻转管理器
+  window.toggleFullscreen();
 };
 
-/* ---------- 点视频显示/隐藏控件（仅桌面端；移动端交给手势模块） ---------- */
 let lastTouchTs = 0;
 
 container.addEventListener('touchstart', () => {
@@ -2114,20 +2003,16 @@ container.addEventListener('touchstart', () => {
 }, { passive: true, capture: true });
 
   container.addEventListener('click', (e) => {
-    // 控件区域内的点击不处理（比如点播放键/进度条）
     if (e.target.closest('.video-ctrl')) return;
-    // 触摸设备上紧接着 touchend 会有一个合成 click，跳过它
     if (Date.now() - lastTouchTs < 600) return;
     container.classList.toggle('ctrl-show');
   });
 }
 
-/* ★ 新增：缓冲区策略常量 */
-const SHORT_VIDEO_SECONDS  = 30 * 60; // 短视频阈值：30 分钟（秒）
-const SHORT_BUFFER_SECONDS = 3 * 60;  // 短视频缓冲区上限：3 分钟
-const LONG_BUFFER_SECONDS  = 5 * 60;  // 长视频缓冲区上限：5 分钟
-const DEFAULT_BITRATE      = 2000000; // 码率兜底值（bps），用于估算字节上限
-
+/* ============================================================
+   HLS 播放器
+   ★★★ 修复：恢复保守的缓冲配置，避免起播慢和卡顿 ★★★
+   ============================================================ */
 function startHlsPlayer(videoUrl){
   const container = $('#playerContainer');
   const video = $('#playerVideo');
@@ -2160,6 +2045,7 @@ const referer = (!srcCfg.noReferer && srcBase)
     return;
   }
 
+/* ★ 保守的 VOD 缓冲配置：起播快、不预拉过多分片 */
 hlsInstance = new Hls({
   enableWorker: true,
   lowLatencyMode: true,
@@ -2168,11 +2054,10 @@ hlsInstance = new Hls({
   fragLoadingTimeOut: 20000,
   fragLoadingMaxRetry: 2,
 
-  // ★ 新增：缓冲区初值（拿到真实时长后会被动态覆盖）
-  maxBufferLength:    LONG_BUFFER_SECONDS,
-  maxMaxBufferLength: LONG_BUFFER_SECONDS,  // 必须同步改，否则会被默认 600s 顶上去
-  maxBufferSize:      100 * 1024 * 1024,
-  backBufferLength:   90,                    // 已播放部分保留 90 秒
+  maxBufferLength:    30,                    // 前向缓冲 30 秒
+  maxMaxBufferLength: 60,                    // 上限 60 秒
+  maxBufferSize:      60 * 1024 * 1024,      // 字节上限 60MB
+  backBufferLength:   30,                    // 已播放部分保留 30 秒
 
   xhrSetup: function(xhr, url){
     try {
@@ -2183,46 +2068,7 @@ hlsInstance = new Hls({
   }
 });
 
-/* ---------- ★ 新增：根据总时长动态调整缓冲区 ---------- */
-let lastAppliedDuration = -1;
-
-function applyBufferPolicy(duration){
-  if (typeof duration !== 'number' || !isFinite(duration) || duration <= 0) return;
-  if (duration === lastAppliedDuration) return;
-  lastAppliedDuration = duration;
-
-  const isShort = duration <= SHORT_VIDEO_SECONDS;
-  const bufLen  = isShort ? SHORT_BUFFER_SECONDS : LONG_BUFFER_SECONDS;
-
-  const levelIdx = hlsInstance.currentLevel >= 0 ? hlsInstance.currentLevel : hlsInstance.loadLevel;
-  const level    = hlsInstance.levels && hlsInstance.levels[levelIdx];
-  const bitrate  = (level && level.bitrate) || DEFAULT_BITRATE;
-  const bufSize  = Math.max((bitrate / 8) * bufLen, 10 * 1024 * 1024);
-
-  hlsInstance.config.maxBufferLength    = bufLen;
-  hlsInstance.config.maxMaxBufferLength = bufLen;
-  hlsInstance.config.maxBufferSize      = bufSize;
-
-  console.log('[HLS] 总时长 ' + duration.toFixed(0) + 's → 缓冲上限 ' +
-              bufLen + 's，字节上限 ' + (bufSize / 1024 / 1024).toFixed(1) + 'MB');
-}
-
-/* ---------- ★ 新增：三个事件监听，触发动态缓冲策略 ---------- */
-hlsInstance.on(Hls.Events.LEVEL_LOADED, function(_, data){
-  applyBufferPolicy(data.details.totalduration);
-});
-hlsInstance.on(Hls.Events.LEVEL_UPDATED, function(_, data){
-  applyBufferPolicy(data.details.totalduration);
-});
-video.addEventListener('durationchange', function(){
-  if (isFinite(video.duration) && video.duration > 0) {
-    applyBufferPolicy(video.duration);
-  }
-});
-
-
-
-  /* ---------- ★ 新增：HLS 分片加载完成 → 更新缓冲条 ---------- */
+  /* HLS 分片加载完成 → 更新缓冲条 */
   hlsInstance.on(Hls.Events.FRAG_BUFFERED, function(){
     const v = document.getElementById('playerVideo');
     const bufferedEl = document.getElementById('progressBuffered');
@@ -2313,13 +2159,12 @@ function playWithIframe(iframeSrc){
   iframe.src = iframeSrc;
 }
 
-/* ★ 修复 3：按 host 隔离 cookie */
+/* 按 host 隔离 cookie */
 async function fetchViaRelay(url, opts, timeout){
   const target = CONFIG.relay + encodeURIComponent(url);
   const options = opts || {};
   const headers = options.headers || {};
 
-  /* 取当前请求目标的 host，按 host 分桶使用 cookie */
   const host = getHostFromUrl(url);
   const cookie = host ? cookiesByHost[host] : '';
   if (cookie) {
@@ -2329,7 +2174,6 @@ async function fetchViaRelay(url, opts, timeout){
 
   const r = await fetchWithTimeout(target, options, timeout);
 
-  /* 收到 Set-Cookie 时，只写入对应 host 的桶 */
   const setCookie = r.headers.get('x-set-cookie');
   if (setCookie && host) {
     const m = setCookie.match(/cdndefend_js_cookie=[^;]+/);
@@ -2439,7 +2283,6 @@ function updatePaginationUI(){
   const box = $('#paginationBox');
   if(!box) return;
 
-  // 飞流视频：特殊分页 UI（"加载更多"按钮）
   if(currentSource === 'flixflop'){
     if(pageState.hasMore){
       box.className = 'pagination-box';
@@ -2457,9 +2300,6 @@ function updatePaginationUI(){
     return;
   }
 
-
-
-// 爱看机器人：加载更多模式（服务端"上一页"是加密链接，无法重放）
 if(currentSource === 'ikanbot'){
   if(pageState.hasMore){
     box.className = 'pagination-box';
@@ -2477,9 +2317,6 @@ if(currentSource === 'ikanbot'){
   return;
 }
 
-
-
-  // 其他源：原有上一页/下一页
   if(pageState.totalPages > 1 || pageState.hasPrev || pageState.hasMore){
     box.className = 'pagination-box';
     box.innerHTML =
@@ -2558,11 +2395,9 @@ async function doSearch(keyword){
   renderSkeleton();
 
   try{
-  /* ★★★ 聚合源：并发请求 3 个子源，合并结果 ★★★ */
 if(mySource === 'juhe'){
   const apis = SOURCES.juhe._apis;
 
-  // 每个子源一个请求
   const tasks = apis.map(async (sub) => {
     const searchUrl = sub.api + (sub.api.includes('?') ? '&' : '?') +
                       'ac=videolist&wd=' + encodeURIComponent(keyword);
@@ -2570,7 +2405,6 @@ if(mySource === 'juhe'){
       const text = await fetchViaRelay(searchUrl, { method: 'GET' });
       if(myToken !== searchToken || mySource !== currentSource) return [];
       const result = parseAppleCMSList(text, { name: sub.name, base: sub.api });
-      // 给每条结果打上子源标记，方便区分
       return (result.list || []).map(it => ({ ...it, _subSource: sub.name }));
     } catch (e) {
       console.warn('[' + sub.name + '] 搜索失败：', e.message);
@@ -2578,18 +2412,15 @@ if(mySource === 'juhe'){
     }
   });
 
-  // 等所有子源返回
   const resultsArr = await Promise.all(tasks);
   if(myToken !== searchToken || mySource !== currentSource) return;
 
-// ★ 合并同名：只按"名字完全相同"合并，多源塞进 _variants
 const all = resultsArr.flat();
 const map = new Map();
 all.forEach(it => {
   const nameKey = (it.name || '').trim();
   if(!nameKey) return;
   if(!map.has(nameKey)){
-    // 第一次遇到：创建卡片，_variants 保存多源
     map.set(nameKey, {
       name: it.name,
       year: it.year,
@@ -2600,17 +2431,14 @@ all.forEach(it => {
       _variants: [ it ]
     });
   } else {
-    // 已有同名：追加源
     const existing = map.get(nameKey);
     existing._variants.push(it);
-    // 补封面 / 年份（第一个没值就用后面的）
     if(!existing.cover && it.cover) existing.cover = it.cover;
     if(!existing.year && it.year)   existing.year  = it.year;
   }
 });
 const merged = Array.from(map.values());
 
-  // 写入分页状态
   pageState.prevUrl     = '';
   pageState.nextUrl     = '';
   pageState.hasPrev     = false;
@@ -2621,10 +2449,8 @@ const merged = Array.from(map.values());
   pageState.flixLastRank = null;
 
   renderCards(merged, keyword, false);
-  return;   // ← 结束 juhe 分支，不再往下走
+  return;
 }
-/* ★★★ 聚合源分支结束 ★★★ */
-
 
      const src = SOURCES[mySource];
   const postOpts = src.getSearchOptions(keyword);
@@ -2640,7 +2466,6 @@ const merged = Array.from(map.values());
 
   let result = src.parseList(txt);
 
-/* ★ 饭搭子：/yu- 搜不到时，再试一次（防止首次请求偶发失败） */
 if(currentSource === 'fandazi' && result.list.length === 0){
   try {
     const yuUrl = SOURCES.fandazi.getYuUrl(keyword);
@@ -2674,7 +2499,6 @@ if(currentSource === 'fandazi' && result.list.length === 0){
 }
 }
 
-/* 飞流专用：加载更多 */
 async function loadMoreFlix(){
   if(currentSource !== 'flixflop') return;
   if(!pageState.flixLastRank) {
@@ -2714,9 +2538,6 @@ async function loadMoreFlix(){
   }
 }
 
-
-
-/* 爱看机器人专用：加载更多（追加卡片，不清空已加载的） */
 async function loadMoreIkanbot(){
   if(currentSource !== 'ikanbot') return;
   if(!pageState.nextUrl){
@@ -2785,7 +2606,6 @@ async function gotoPage(targetUrl){
 function closeDetailUI(){
   destroyHls();
 
-  // 如果在全屏，先退出全屏 + 解锁方向，避免卡在横屏
   if(document.fullscreenElement ||
      document.webkitFullscreenElement ||
      document.mozFullScreenElement ||
@@ -2801,7 +2621,6 @@ function closeDetailUI(){
     if(ex){ try{ ex.call(document); }catch(e){} }
   }
 
-  // 清掉重力翻转留下的 CSS 旋转
   const c = document.getElementById('playerContainer');
   if(c) c.style.transform = '';
 
@@ -2839,7 +2658,6 @@ async function openDetail(item){
   try{
     let detailData;
 
-// ★ 飞流视频：直接用搜索结果里的 _sources，不请求详情页
 if(currentSource === 'flixflop'){
   const playList = SOURCES.flixflop.buildPlayListFromSources(item._sources);
   detailData = {
@@ -2849,7 +2667,6 @@ if(currentSource === 'flixflop'){
     playList
   };
 }
-// ★★★ 聚合源分支：遍历 _variants，拉取所有源的详情，合并线路 ★★★
 else if(currentSource === 'juhe'){
   const variants = item._variants || [];
 
@@ -2859,7 +2676,6 @@ else if(currentSource === 'juhe'){
     const allPlayList = [];
     let cover = item.cover || '';
 
-    // 逐个源拉详情
     for(const variant of variants){
       const vodId = variant._appleCMSVodId;
       const subName = variant._subSource;
@@ -2875,7 +2691,6 @@ else if(currentSource === 'juhe'){
 
         const parsed = parseAppleCMSDetail(txt);
 
-        // ★ 线路名前加源名，避免重名混淆：'[火狐] hhm3u8'
         (parsed.playList || []).forEach(ep => {
           allPlayList.push({
             lineName: '[' + subName + '] ' + (ep.lineName || '线路'),
@@ -2884,7 +2699,6 @@ else if(currentSource === 'juhe'){
           });
         });
 
-        // 补封面
         if(!cover && parsed.cover) cover = parsed.cover;
       } catch(e){
         console.warn('[' + subName + '] 详情失败：', e.message);
@@ -2899,11 +2713,9 @@ else if(currentSource === 'juhe'){
     };
   }
 }
-/* ★★★ 聚合源分支结束 ★★★ */
 
 else {
 
-  /* ★ 修复 4：饭搭子优先用 sid=5，失败自动降级到原始 href */
   let detailUrl = item.href;
   if (currentSource === 'fandazi' && item.hrefSid5) {
     detailUrl = item.hrefSid5;
@@ -2934,22 +2746,18 @@ else {
       $('#dThumb').style.backgroundImage = "url('" + detailData.cover + "')";
     }
 
-    // 生成播放列表 HTML（统一走 line-group 折叠样式）
     let playListHtml = '';
     if (detailData.playList && detailData.playList.length) {
 const groups = {};
 detailData.playList.forEach((p, idx) => {
-  // ★ 用 sid 分组，避免两条线路重名被合并；没 sid 才退回 lineName
   const groupKey = p.sid || p.lineName || '线路1';
   if (!groups[groupKey]) groups[groupKey] = [];
   groups[groupKey].push({ ...p, originalIndex: idx });
 });
 
-
 const lineKeys = Object.keys(groups);
 playListHtml = lineKeys.map((groupKey, lineIdx) => {
   const eps = groups[groupKey];
-  // ★ 线路名用该组第一条记录的 lineName（同一个 sid 的 lineName 是相同的）
   const lineName = eps[0].lineName || ('线路' + groupKey);
   const isFirst = lineIdx === 0;
   return `
@@ -3045,9 +2853,8 @@ playListHtml = lineKeys.map((groupKey, lineIdx) => {
 
 $('#dBody').innerHTML = body;
 
-setupVideoControls();   // ★ 新增这一行
+setupVideoControls();
 
-/* ★ 修复 2：详情页渲染后，主动绑定一次手势，替代原 setInterval 轮询 */
 if (window.__bindPlayerGestures) {
   window.__bindPlayerGestures();
 }
@@ -3128,12 +2935,11 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
         if (nextBtn) nextBtn.disabled = (epIndex >= total - 1);
     };
 
-    // ★★★ 小蜜蜂：调 /api/play-url 拿真实 m3u8，用自己播放器 ★★★
     if (currentSource === 'xiaomifeng') {
         const cur = window._currentPlayList[epIndex];
         if(!cur || !cur.vodId){
             toast('缺少播放参数');
-            updateEpBtns();                 // ← 新增
+            updateEpBtns();
             return;
         }
         if (playerBox) playerBox.style.display = 'block';
@@ -3151,7 +2957,7 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
             if(!data || !data.url){
                 if(paddr){ paddr.className='paddr fail'; paddr.textContent='接口未返回播放地址'; }
                 toast('接口未返回播放地址');
-                updateEpBtns();             // ← 新增
+                updateEpBtns();
                 return;
             }
             if (paddr) {
@@ -3164,14 +2970,12 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
             console.error(e);
             toast('获取播放地址失败：' + e.message);
         }
-        updateEpBtns();                     // ← 新增
+        updateEpBtns();
         return;
     }
-    // ★★★ 小蜜蜂分支结束 ★★★
 
 updateEpBtns();
 
-// ★ 0) 官方站（v.qq.com / v.youku.com 等）→ iframe 尝试
 if (/v\.qq\.com|v\.youku\.com|www\.iqiyi\.com|www\.bilibili\.com|www\.mgtv\.com/i.test(rawUrl)) {
     if (playerBox) playerBox.style.display = 'block';
     if (paddr) {
@@ -3184,8 +2988,6 @@ if (/v\.qq\.com|v\.youku\.com|www\.iqiyi\.com|www\.bilibili\.com|www\.mgtv\.com/
     return;
 }
 
-
-// ★ 1) /share/ 分享页 → iframe 套壳，不走 HLS
 if (/\/share\/[a-zA-Z0-9]+/.test(rawUrl)) {
     if (playerBox) playerBox.style.display = 'block';
     if (paddr) {
@@ -3198,7 +3000,6 @@ if (/\/share\/[a-zA-Z0-9]+/.test(rawUrl)) {
     return;
 }
 
-// ★ 2) m3u8 / mp4 / flv → HLS
 if (MEDIA_RE.test(rawUrl)) {
     if (playerBox) playerBox.style.display = 'block';
     if (paddr) {
@@ -3281,7 +3082,6 @@ async function playAdjacent(delta) {
     const cur = list[window._currentEpIndex];
     if (!cur) return;
 
-    // ★ 只取同 sid（同线路）的集
     const sameLine = list.filter(ep => ep.sid === cur.sid);
     const idxInLine = sameLine.indexOf(cur);
     const target = sameLine[idxInLine + delta];
@@ -3295,7 +3095,6 @@ async function playAdjacent(delta) {
     const lineName = target.lineName || '线路';
     const epTitle  = target.epName || target.title || '正片';
 
-    // 更新集数按钮高亮
     $$('.ep-btn').forEach(btn => {
         if (parseInt(btn.dataset.index, 10) === newIndex) {
             btn.classList.add('active');
@@ -3311,7 +3110,6 @@ async function playAdjacent(delta) {
 
     window._currentEpIndex = newIndex;
 
-    // 展开该集所在的线路面板（一般已经在展开状态，不用动）
     const targetBtn = document.querySelector(`.ep-btn[data-index="${newIndex}"]`);
     if (targetBtn) {
         const group = targetBtn.closest('.line-group');
@@ -3329,7 +3127,6 @@ async function probePlayUrl(playPageUrl){
   const playBtns = $('#playBtns');
   if(!paddr || !playBtns) return;
 
-  // 每次进来先把状态重置
   paddr.className = 'paddr probing';
   paddr.textContent = '正在探测真实播放地址…';
   playBtns.style.display = 'none';
@@ -3351,7 +3148,6 @@ async function probePlayUrl(playPageUrl){
   const openBtn = playBtns.querySelector('.btn-play-open');
 
   if(detected){
-    /* ---------- 探测成功 ---------- */
     paddr.className = 'paddr ok';
     paddr.textContent = '';
     toast('已探测到播放地址');
@@ -3376,7 +3172,6 @@ async function probePlayUrl(playPageUrl){
     playBtns.style.display = 'flex';
 
   } else {
-    /* ---------- 探测失败：保留重试入口 ---------- */
     paddr.className = 'paddr fail';
     paddr.textContent = '未探测到播放地址，可点击下方按钮重试';
 
@@ -3391,7 +3186,7 @@ async function probePlayUrl(playPageUrl){
     if(openBtn){
       openBtn.textContent = '重新探测';
       openBtn.onclick = function(){
-        probePlayUrl(playPageUrl);   // ← 递归再探一次
+        probePlayUrl(playPageUrl);
       };
     }
     playBtns.style.display = 'flex';
@@ -3432,7 +3227,7 @@ function switchSource(src){
 }
 
 /* ============================================================
-   片源横滑选择器（中间大 / 左右中 / 再外小；手势切换；active 永远居中）
+   片源横滑选择器
    ============================================================ */
 (function initSrcSwiper(){
   const swiper = document.getElementById('srcSwiper');
@@ -3449,8 +3244,6 @@ const SRC_LIST = [
   { src:'ikanbot',    name:'爱看机器人' },
 ];
 
-
-/* ★ 创建绿色导轨（固定不动，撑满屏幕） */
 if(!swiper.querySelector('.src-rail')){
   const rail = document.createElement('div');
   rail.className = 'src-rail';
@@ -3463,12 +3256,10 @@ if(!swiper.querySelector('.src-rail')){
   const pills = Array.prototype.slice.call(track.querySelectorAll('.src-pill'));
   const N = pills.length;
 
-  /* ★ 默认居中（双数偏左）：Math.floor((N-1)/2) */
   const defaultIdx = Math.floor((N - 1) / 2);
   const savedIdx   = SRC_LIST.findIndex(o => o.src === currentSource);
   let activeIdx = (savedIdx <= 0) ? defaultIdx : savedIdx;
 
-  /* ★ 让 currentSource 跟默认 active 保持一致，视觉和数据一致 */
   currentSource = SRC_LIST[activeIdx].src;
 
   function applyClasses(){
@@ -3478,16 +3269,12 @@ if(!swiper.querySelector('.src-rail')){
     });
   }
 
-  /* ★ 用 translateX 让 active 永远居中 */
   function applyCenterOffset(withAnimation){
     const wrapW = swiper.clientWidth;
     const el = pills[activeIdx];
     if(!el) return;
 
-    /* active 在 track 布局坐标系里的中心位置（offsetLeft 不受 transform 影响） */
     const activeCenterInTrack = el.offsetLeft + el.offsetWidth / 2;
-
-    /* 目标位移 = 屏幕中心 - active 在 track 里的中心 */
     const offset = wrapW / 2 - activeCenterInTrack;
 
     if(withAnimation){
@@ -3518,7 +3305,6 @@ if(!swiper.querySelector('.src-rail')){
     layout(true);
   }
 
-  /* 点击 pill 切换 */
   pills.forEach((p, i) => {
     p.addEventListener('click', function(e){
       e.stopPropagation();
@@ -3526,7 +3312,6 @@ if(!swiper.querySelector('.src-rail')){
     });
   });
 
-  /* ★ 手势切换：只检测滑动方向，列表本身不动 */
   let startX = 0, startY = 0, tracking = false, fired = false;
   const SWIPE_THRESHOLD = 30;
 
@@ -3540,7 +3325,6 @@ if(!swiper.querySelector('.src-rail')){
     const dx = x - startX;
     const dy = y - startY;
 
-    /* 竖直滑动为主：放弃（让页面滚动） */
     if(Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) return;
 
     if(dx <= -SWIPE_THRESHOLD){
@@ -3577,7 +3361,6 @@ if(!swiper.querySelector('.src-rail')){
     resizeTimer = setTimeout(function(){ layout(false); }, 120);
   });
 
-  /* 初始化：无动画布局 */
   requestAnimationFrame(function(){
     requestAnimationFrame(function(){
       layout(false);

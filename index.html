@@ -830,10 +830,10 @@ fandazi: {
   name: '饭搭子',
   base: 'https://fdzys.net',
 
-  /* 搜索页 URL：/yu-{关键词}-xianguan-de-yingpian-shippin-zhibo */
+  /* ★ 搜索入口：/search?wd=xxx（原站真正的搜索页，支持所有关键词）
+     encodeURIComponent 会把中文编成 %XX，代理和服务器都能识别 */
   getSearchUrl: function(kw){
-    return this.base + '/yu-' + encodeURIComponent(kw) +
-           '-xianguan-de-yingpian-shippin-zhibo';
+    return this.base + '/search?wd=' + encodeURIComponent(kw);
   },
   getSearchUrlGet: function(kw){
     return this.getSearchUrl(kw);
@@ -842,19 +842,26 @@ fandazi: {
     return { method: 'GET' };
   },
 
-  /* 解析搜索结果页：提取所有 /movie/ /tv/ /duanju/ 详情页链接 */
+  /* ★ 备用搜索入口：/yu-xxx-...（SEO 友好页，部分词有收录）
+     encodeURIComponent 保证中文正确编码 */
+  getYuUrl: function(kw){
+    return this.base + '/yu-' + encodeURIComponent(kw) +
+           '-xianguan-de-yingpian-shippin-zhibo';
+  },
+
+  /* 解析搜索结果页：兼容 /search 骨架页 + /yu- SEO 页 */
   parseList: function(html){
     const doc = new DOMParser().parseFromString(html, 'text/html');
     const list = [];
     const seen = new Set();
 
-    doc.querySelectorAll('.myui-vodbox-content a[href]').forEach(a => {
+    const pushCard = (a) => {
       const href = a.getAttribute('href') || '';
       if(!href || seen.has(href)) return;
       if(!/\/(movie|tv|duanju)\//.test(href)) return;
       seen.add(href);
 
-      const nameEl = a.querySelector('.title') || a.querySelector('.card-info .title');
+      const nameEl = a.querySelector('.title');
       const name = nameEl ? nameEl.textContent.trim() : '';
       if(!name) return;
 
@@ -866,7 +873,7 @@ fandazi: {
       }
       if(cover && cover.indexOf('data:image') === 0) cover = '';
 
-      const roleEl = a.querySelector('.role') || a.querySelector('.info-roles');
+      const roleEl = a.querySelector('.role');
       const role = roleEl ? roleEl.textContent.trim().replace(/^主演[:：]?/, '') : '';
 
       const tagEl = a.querySelector('.tag-box .tag');
@@ -879,9 +886,21 @@ fandazi: {
         region: role,
         status,
         cover: abs(cover, this.base),
-        href: abs(href, this.base)
+        href: abs(href, this.base),
+        hrefSid5: abs(href, this.base) + '?sid=5'
       });
-    });
+    };
+
+    // ① 标准卡片
+    doc.querySelectorAll('.myui-vodbox-content a[href]').forEach(pushCard);
+
+    // ② 兜底：直接找 /movie/ /tv/ /duanju/ 链接
+    if(list.length === 0){
+      doc.querySelectorAll('a[href]').forEach(a => {
+        const href = a.getAttribute('href') || '';
+        if(/\/(movie|tv|duanju)\//.test(href)) pushCard(a);
+      });
+    }
 
     return {
       list,
@@ -895,7 +914,7 @@ fandazi: {
     };
   },
 
-  /* 详情页解析：拿 player_aaaa.url，并按需解析 CDN 分享页 */
+  /* 详情页解析：拿 player_aaaa.url */
   parseDetailAsync: async function(html){
     const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
     if(!m){
@@ -910,7 +929,6 @@ fandazi: {
     }
 
     let url = cfg.url || '';
-    // 解密（有 encrypt 时）
     try {
       if(cfg.encrypt == 1) url = unescape(url);
       else if(cfg.encrypt == 2) url = unescape(atob(url));
@@ -920,7 +938,7 @@ fandazi: {
       return { cover: '', magnets: [], playPageUrl: '', playList: [] };
     }
 
-    // 直接是 m3u8
+    // ★ 直接是 m3u8：喂 hls.js
     if(MEDIA_RE.test(url)){
       return {
         cover: '',
@@ -928,61 +946,41 @@ fandazi: {
         playPageUrl: '',
         playList: [{
           lineName: cfg.from || '饭搭子',
-          epName: cfg.vod_data && cfg.vod_data.vod_name
-                  ? cfg.vod_data.vod_name
-                  : '正片',
+          epName: (cfg.vod_data && cfg.vod_data.vod_name) || '正片',
           url
         }]
       };
     }
 
-    // CDN 分享页：请求它，提取 var main
+    // ★ 是 /share/ 分享页：走 iframe 套壳
     if(/\/share\/[a-zA-Z0-9]+/.test(url)){
-      try {
-        const shareHtml = await requestUrl(url);
-        const mm = shareHtml.match(/var\s+main\s*=\s*["']([^"']+)["']/);
-        if(mm){
-          let mainPath = mm[1].replace(/\\\//g, '/');
-          if(!/^https?:\/\//i.test(mainPath)){
-            const origin = new URL(url).origin;
-            mainPath = origin + mainPath;
-          }
-          return {
-            cover: '',
-            magnets: [],
-            playPageUrl: '',
-            playList: [{
-              lineName: cfg.from || '饭搭子',
-              epName: cfg.vod_data && cfg.vod_data.vod_name
-                      ? cfg.vod_data.vod_name
-                      : '正片',
-              url: mainPath
-            }]
-          };
-        }
-      } catch(e){
-        console.warn('[饭搭子] 分享页请求失败：', e.message);
-      }
-
-      // 提取不到 m3u8 就把分享页地址当播放页，走 iframe
       return {
         cover: '',
         magnets: [],
-        playPageUrl: url,
-        playList: []
+        playPageUrl: '',
+        playList: [{
+          lineName: cfg.from || '饭搭子',
+          epName: (cfg.vod_data && cfg.vod_data.vod_name) || '正片',
+          url,
+          isShare: true
+        }]
       };
     }
 
-    // 其他情况（如官方站点 v.qq.com）：走 playPageUrl 探测
+    // ★ 其他（官方站 v.qq.com 等）：当作外部播放页，iframe 兜底
     return {
       cover: '',
       magnets: [],
-      playPageUrl: url,
-      playList: []
+      playPageUrl: '',
+      playList: [{
+        lineName: cfg.from || '饭搭子',
+        epName: (cfg.vod_data && cfg.vod_data.vod_name) || '正片',
+        url,
+        isExternal: true
+      }]
     };
   },
 
-  /* 同步兜底（一般不会走到，因为有 parseDetailAsync） */
   parseDetail: function(html){
     return { cover: '', magnets: [], playPageUrl: '', playList: [] };
   }
@@ -2559,38 +2557,52 @@ const merged = Array.from(map.values());
 /* ★★★ 聚合源分支结束 ★★★ */
 
 
-    const src = SOURCES[mySource];
-    const postOpts = src.getSearchOptions(keyword);
-    let txt = '';
-    try {
-      txt = await fetchViaRelay(src.getSearchUrl(keyword), postOpts);
-    } catch (e) {
-      txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
-    }
-
-    if(myToken !== searchToken) return;
-    if(mySource !== currentSource) return;
-
-    const result = src.parseList(txt);
-
-    pageState.prevUrl     = result.prevUrl || '';
-    pageState.nextUrl     = result.nextUrl || '';
-    pageState.hasPrev     = !!result.hasPrev;
-    pageState.hasMore     = !!result.hasMore;
-    pageState.currentPage = result.currentPage || 1;
-    pageState.totalPages  = result.totalPages || 1;
-    pageState.totalCount  = result.totalCount || result.list.length;
-    pageState.flixLastRank = result._lastRank || null;
-
-    renderCards(result.list, keyword, false);
-  }catch(e){
-    console.error(e);
-    if(myToken !== searchToken) return;
-    if(mySource !== currentSource) return;
-    renderError('请求失败：' + (e.message || '未知错误'), keyword);
-  }finally{
-    btn.classList.remove('loading');
+     const src = SOURCES[mySource];
+  const postOpts = src.getSearchOptions(keyword);
+  let txt = '';
+  try {
+    txt = await fetchViaRelay(src.getSearchUrl(keyword), postOpts);
+  } catch (e) {
+    txt = await fetchViaRelay(src.getSearchUrlGet(keyword), { method: 'GET' });
   }
+
+  if(myToken !== searchToken) return;
+  if(mySource !== currentSource) return;
+
+  let result = src.parseList(txt);
+
+  /* ★ 饭搭子兜底：/search?wd= 搜不到时，改抓 /yu-xxx-... 再试一次 */
+  if(currentSource === 'fandazi' && result.list.length === 0){
+    try {
+      const yuUrl = SOURCES.fandazi.getYuUrl(keyword);
+      console.log('[饭搭子] /search 无结果，改用 /yu- URL:', yuUrl);
+      const yuHtml = await fetchViaRelay(yuUrl, { method: 'GET' });
+      if(myToken !== searchToken) return;
+      if(mySource !== currentSource) return;
+      result = src.parseList(yuHtml);
+    } catch (e) {
+      console.warn('[饭搭子] /yu- 兜底也失败：', e.message);
+    }
+  }
+
+  pageState.prevUrl     = result.prevUrl || '';
+  pageState.nextUrl     = result.nextUrl || '';
+  pageState.hasPrev     = !!result.hasPrev;
+  pageState.hasMore     = !!result.hasMore;
+  pageState.currentPage = result.currentPage || 1;
+  pageState.totalPages  = result.totalPages || 1;
+  pageState.totalCount  = result.totalCount || result.list.length;
+  pageState.flixLastRank = result._lastRank || null;
+
+  renderCards(result.list, keyword, false);
+}catch(e){
+  console.error(e);
+  if(myToken !== searchToken) return;
+  if(mySource !== currentSource) return;
+  renderError('请求失败：' + (e.message || '未知错误'), keyword);
+}finally{
+  btn.classList.remove('loading');
+}
 }
 
 /* 飞流专用：加载更多 */
@@ -2823,7 +2835,11 @@ else if(currentSource === 'juhe'){
 else {
 
 
-  const html = await requestUrl(item.href);
+  // ★ 饭搭子：优先用 sid=5（采集线路，通常有 /share/）
+const detailUrl = (currentSource === 'fandazi' && item.hrefSid5)
+  ? item.hrefSid5
+  : item.href;
+const html = await requestUrl(detailUrl);
   if(!detailOpen) return;
   const src = SOURCES[currentSource];
   if(typeof src.parseDetailAsync === 'function'){
@@ -3061,18 +3077,32 @@ async function playEpisode(rawUrl, epIndex, lineName, epTitle) {
     }
     // ★★★ 小蜜蜂分支结束 ★★★
 
-    updateEpBtns();
+updateEpBtns();
 
-    if (MEDIA_RE.test(rawUrl)) {
-        if (playerBox) playerBox.style.display = 'block';
-        if (paddr) {
-            paddr.className = 'paddr ok';
-            paddr.textContent = rawUrl;
-        }
-        startHlsPlayer(rawUrl);
-        $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
-        return;
+// ★ 1) /share/ 分享页 → iframe 套壳，不走 HLS
+if (/\/share\/[a-zA-Z0-9]+/.test(rawUrl)) {
+    if (playerBox) playerBox.style.display = 'block';
+    if (paddr) {
+        paddr.className = 'paddr ok';
+        paddr.textContent = rawUrl;
     }
+    playWithIframe(rawUrl);
+    $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+    toast('已启动分享页播放器');
+    return;
+}
+
+// ★ 2) m3u8 / mp4 / flv → HLS
+if (MEDIA_RE.test(rawUrl)) {
+    if (playerBox) playerBox.style.display = 'block';
+    if (paddr) {
+        paddr.className = 'paddr ok';
+        paddr.textContent = rawUrl;
+    }
+    startHlsPlayer(rawUrl);
+    $('#dBody').scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+}
 
     if (playerBox) playerBox.style.display = 'none';
     if (paddr) {

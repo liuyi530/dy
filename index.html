@@ -1799,12 +1799,13 @@ function fmt(s){
   video.addEventListener('play',  () => { playBtn.textContent = '暂停'; });
   video.addEventListener('pause', () => { playBtn.textContent = '播放'; });
 
-  let dragPct     = 0;
-  let isDragging  = false;
-  let pendingSeek = null;
-  let relativeDrag = false;
-  let relStartX = 0;
-  let relStartPct = 0;
+let dragPct     = 0;
+let isDragging  = false;
+let pendingSeek = null;
+let relativeDrag = false;
+let relStartX = 0;
+let relStartPct = 0;
+let hasMoved = false;          // ★ 新增：标记本次相对拖动是否真正移动过
 
 function getPctFromX(clientX){
   const bg = wrap.querySelector('.progress-bg');
@@ -1828,15 +1829,16 @@ function isOnDot(clientX, clientY){
          clientY >= r.top - padding && clientY <= r.bottom + padding;
 }
 
-  function updateDragUI(clientX){
-    const pct = getPctFromX(clientX);
-    dragPct = pct;
-    playedEl.style.width = pct * 100 + '%';
-    dot.style.left   = pct * 100 + '%';
-    if(video.duration && isFinite(video.duration)){
-      timeEl.textContent = fmt(pct * video.duration) + ' / ' + fmt(video.duration);
-    }
+function updateDragUI(clientX){
+  const pct = getPctFromX(clientX);
+  dragPct = pct;
+  playedEl.style.width = pct * 100 + '%';
+  dot.style.left   = pct * 100 + '%';
+  if(video.duration && isFinite(video.duration)){
+    timeEl.textContent = fmt(pct * video.duration) + ' / ' + fmt(video.duration);
   }
+}
+
 function updateRelativeDragUI(clientX){
   const bg = wrap.querySelector('.progress-bg');
   const bgW = bg ? bg.getBoundingClientRect().width : wrap.getBoundingClientRect().width;
@@ -1852,81 +1854,114 @@ function updateRelativeDragUI(clientX){
   }
 }
 
-  function canSeekTo(v, t){
-    if(!v.seekable || v.seekable.length === 0) return false;
-    for(let i = 0; i < v.seekable.length; i++){
-      if(t >= v.seekable.start(i) && t <= v.seekable.end(i)) return true;
-    }
-    return false;
+function canSeekTo(v, t){
+  if(!v.seekable || v.seekable.length === 0) return false;
+  for(let i = 0; i < v.seekable.length; i++){
+    if(t >= v.seekable.start(i) && t <= v.seekable.end(i)) return true;
   }
+  return false;
+}
 
 function doSeek(target){
   const pct = video.duration ? target / video.duration : 0;
   playedEl.style.width = pct * 100 + '%';
   dot.style.left       = pct * 100 + '%';
-    if(video.duration && isFinite(video.duration)){
-      timeEl.textContent = fmt(target) + ' / ' + fmt(video.duration);
-    }
-    if(canSeekTo(video, target)){
-      video.currentTime = target;
-      pendingSeek = null;
-    } else {
-      pendingSeek = target;
-    }
+  if(video.duration && isFinite(video.duration)){
+    timeEl.textContent = fmt(target) + ' / ' + fmt(video.duration);
   }
-
-  function commitDrag(){
-    if(!isDragging) return;
-    isDragging = false;
-    if(!video.duration || !isFinite(video.duration)) return;
-    doSeek(dragPct * video.duration);
+  if(canSeekTo(video, target)){
+    video.currentTime = target;
+    pendingSeek = null;
+  } else {
+    pendingSeek = target;
   }
+}
 
-  if(pendingSeekTimer){
-    clearInterval(pendingSeekTimer);
-    pendingSeekTimer = null;
+function commitDrag(){
+  if(!isDragging) return;
+  isDragging = false;
+  if(!video.duration || !isFinite(video.duration)) return;
+  doSeek(dragPct * video.duration);
+}
+
+function commitRelativeDrag(){
+  if(!relativeDrag) return;
+  relativeDrag = false;
+  /* ★ 只有真正滑动过才 seek；纯单击不跳转 */
+  if(!hasMoved){
+    hasMoved = false;
+    dragPct = 0;
+    relStartPct = 0;
+    return;
   }
+  hasMoved = false;
+  if(!video.duration || !isFinite(video.duration)){
+    dragPct = 0;
+    relStartPct = 0;
+    return;
+  }
+  doSeek(dragPct * video.duration);
+  dragPct = 0;
+  relStartPct = 0;
+}
 
-  const tryPending = () => {
-    if(pendingSeek == null) return;
-    if(canSeekTo(video, pendingSeek)){
-      video.currentTime = pendingSeek;
-      pendingSeek = null;
-    }
-  };
-  video.addEventListener('progress', tryPending);
-  video.addEventListener('canplay',  tryPending);
-  video.addEventListener('seeked',   tryPending);
-  pendingSeekTimer = setInterval(tryPending, 500);
+if(pendingSeekTimer){
+  clearInterval(pendingSeekTimer);
+  pendingSeekTimer = null;
+}
+
+const tryPending = () => {
+  if(pendingSeek == null) return;
+  if(canSeekTo(video, pendingSeek)){
+    video.currentTime = pendingSeek;
+    pendingSeek = null;
+  }
+};
+video.addEventListener('progress', tryPending);
+video.addEventListener('canplay',  tryPending);
+video.addEventListener('seeked',   tryPending);
+pendingSeekTimer = setInterval(tryPending, 500);
 
 /* ---------- 鼠标 ---------- */
 wrap.addEventListener('mousedown', e => {
   if (!isInTrackZone(e.clientY)) return;
 
   if (isOnDot(e.clientX, e.clientY)) {
+    /* 拖圆点：绝对定位拖动 */
     isDragging = true;
+    relativeDrag = false;
     updateDragUI(e.clientX);
   } else {
+    /* 点非圆点：进入相对滑动模式（此时不 seek，等滑动后才 seek） */
     relativeDrag = true;
+    isDragging = false;
+    hasMoved = false;
+
     relStartX = e.clientX;
     relStartPct = (video.duration && isFinite(video.duration))
       ? video.currentTime / video.duration
       : 0;
+
+    /* ★ 关键修复：立刻把 dragPct 同步为当前播放位置，
+       消灭上一次拖动/滑动留下的残留值 */
+    dragPct = relStartPct;
   }
 });
 
 window.addEventListener('mousemove', e => {
-  if(isDragging) updateDragUI(e.clientX);
-  else if(relativeDrag) updateRelativeDragUI(e.clientX);
+  if(isDragging){
+    updateDragUI(e.clientX);
+  } else if(relativeDrag){
+    hasMoved = true;                 // ★ 标记真正滑动过
+    updateRelativeDragUI(e.clientX);
+  }
 });
+
 window.addEventListener('mouseup', () => {
   if(isDragging){
     commitDrag();
   } else if(relativeDrag){
-    relativeDrag = false;
-    if(video.duration && isFinite(video.duration)){
-      doSeek(dragPct * video.duration);
-    }
+    commitRelativeDrag();            // ★ 内部判断 hasMoved
   }
 });
 
@@ -1938,13 +1973,20 @@ wrap.addEventListener('touchstart', e => {
 
   if (isOnDot(t.clientX, t.clientY)) {
     isDragging = true;
+    relativeDrag = false;
     updateDragUI(t.clientX);
   } else {
     relativeDrag = true;
+    isDragging = false;
+    hasMoved = false;
+
     relStartX = t.clientX;
     relStartPct = (video.duration && isFinite(video.duration))
       ? video.currentTime / video.duration
       : 0;
+
+    /* ★ 关键修复：初始化 dragPct */
+    dragPct = relStartPct;
   }
 }, { passive: true });
 
@@ -1957,6 +1999,7 @@ wrap.addEventListener('touchmove', e => {
     updateDragUI(e.touches[0].clientX);
     if(e.cancelable) e.preventDefault();
   } else if(relativeDrag){
+    hasMoved = true;                 // ★ 标记真正滑动过
     updateRelativeDragUI(e.touches[0].clientX);
     if(e.cancelable) e.preventDefault();
   }
@@ -1966,20 +2009,15 @@ wrap.addEventListener('touchend', () => {
   if(isDragging){
     commitDrag();
   } else if(relativeDrag){
-    relativeDrag = false;
-    if(video.duration && isFinite(video.duration)){
-      doSeek(dragPct * video.duration);
-    }
+    commitRelativeDrag();            // ★ 内部判断 hasMoved
   }
 });
+
 wrap.addEventListener('touchcancel', () => {
   if(isDragging){
     commitDrag();
   } else if(relativeDrag){
-    relativeDrag = false;
-    if(video.duration && isFinite(video.duration)){
-      doSeek(dragPct * video.duration);
-    }
+    commitRelativeDrag();
   }
 });
 

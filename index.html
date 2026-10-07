@@ -830,24 +830,21 @@ fandazi: {
   name: '饭搭子',
   base: 'https://fdzys.net',
 
-  /* ★ 搜索入口：/search?wd=xxx（原站真正的搜索页，支持所有关键词）
-     encodeURIComponent 会把中文编成 %XX，代理和服务器都能识别 */
-  getSearchUrl: function(kw){
-    return this.base + '/search?wd=' + encodeURIComponent(kw);
-  },
-  getSearchUrlGet: function(kw){
-    return this.getSearchUrl(kw);
-  },
-  getSearchOptions: function(kw){
-    return { method: 'GET' };
-  },
+getSearchUrl: function(kw){
+  return this.base + '/yu-' + encodeURIComponent(kw) +
+         '-xianguan-de-yingpian-shippin-zhibo';
+},
+getSearchUrlGet: function(kw){
+  return this.getSearchUrl(kw);
+},
+getSearchOptions: function(kw){
+  return { method: 'GET' };
+},
 
-  /* ★ 备用搜索入口：/yu-xxx-...（SEO 友好页，部分词有收录）
-     encodeURIComponent 保证中文正确编码 */
-  getYuUrl: function(kw){
-    return this.base + '/yu-' + encodeURIComponent(kw) +
-           '-xianguan-de-yingpian-shippin-zhibo';
-  },
+/* 兼容方法：和 getSearchUrl 一样，兜底逻辑可复用 */
+getYuUrl: function(kw){
+  return this.getSearchUrl(kw);
+},
 
   /* 解析搜索结果页：兼容 /search 骨架页 + /yu- SEO 页 */
   parseList: function(html){
@@ -2571,19 +2568,19 @@ const merged = Array.from(map.values());
 
   let result = src.parseList(txt);
 
-  /* ★ 饭搭子兜底：/search?wd= 搜不到时，改抓 /yu-xxx-... 再试一次 */
-  if(currentSource === 'fandazi' && result.list.length === 0){
-    try {
-      const yuUrl = SOURCES.fandazi.getYuUrl(keyword);
-      console.log('[饭搭子] /search 无结果，改用 /yu- URL:', yuUrl);
-      const yuHtml = await fetchViaRelay(yuUrl, { method: 'GET' });
-      if(myToken !== searchToken) return;
-      if(mySource !== currentSource) return;
-      result = src.parseList(yuHtml);
-    } catch (e) {
-      console.warn('[饭搭子] /yu- 兜底也失败：', e.message);
-    }
+/* ★ 饭搭子：/yu- 搜不到时，再试一次（防止首次请求偶发失败） */
+if(currentSource === 'fandazi' && result.list.length === 0){
+  try {
+    const yuUrl = SOURCES.fandazi.getYuUrl(keyword);
+    console.log('[饭搭子] 首次无结果，重试:', yuUrl);
+    const yuHtml = await fetchViaRelay(yuUrl, { method: 'GET' });
+    if(myToken !== searchToken) return;
+    if(mySource !== currentSource) return;
+    result = src.parseList(yuHtml);
+  } catch (e) {
+    console.warn('[饭搭子] 重试也失败：', e.message);
   }
+}
 
   pageState.prevUrl     = result.prevUrl || '';
   pageState.nextUrl     = result.nextUrl || '';

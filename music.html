@@ -636,6 +636,58 @@ async function looksLikeAudio(blob) {
   return false;
 }
 
+// ============ 媒体会话（系统卡片同步核心） ============
+function initMediaSession() {
+  if (!('mediaSession' in navigator)) {
+    console.warn('当前浏览器不支持 Media Session API');
+    return;
+  }
+
+  // 监听系统卡片的上一曲/下一曲
+  navigator.mediaSession.setActionHandler('previoustrack', () => {
+    console.log('📻 系统触发上一曲');
+    playPrev();
+  });
+  navigator.mediaSession.setActionHandler('nexttrack', () => {
+    console.log('📻 系统触发下一曲');
+    playNext();
+  });
+
+  // 监听系统播放/暂停（可选，确保状态同步）
+  navigator.mediaSession.setActionHandler('play', () => {
+    if (audio.src) audio.play().catch(() => {});
+  });
+  navigator.mediaSession.setActionHandler('pause', () => {
+    audio.pause();
+  });
+}
+
+// 更新系统卡片上的歌曲信息
+function updateMediaSessionMetadata(song) {
+  if (!('mediaSession' in navigator) || !song) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: song.name || '未知歌曲',
+      artist: song.artist || '未知歌手',
+      album: song.album || '',
+      artwork: [
+        // 这里可以放置专辑封面，没有的话系统会自动显示默认图标
+        { src: 'https://via.placeholder.com/512', sizes: '512x512', type: 'image/png' }
+      ]
+    });
+  } catch (e) {
+    console.warn('设置媒体信息失败', e);
+  }
+}
+
+// 更新系统卡片的播放状态
+function updateMediaSessionState(state) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.playbackState = state; // 'none' | 'paused' | 'playing'
+  } catch (e) {}
+}
+
 // ============ 视图切换 ============
 function showHome() {
   currentView = 'home';
@@ -715,13 +767,16 @@ async function scanMusicDir() {
         await rescanAndToast(musicDirHandle);
         return;
       } else {
-        pendingDirHandle = null;
+        console.warn('用户拒绝授权，保留句柄待下次尝试');
+        showToast('未授权。如不再弹窗，请去浏览器设置 -> 网站权限 -> 文件访问 中允许本网站。', 4000);
         updateDirBtnState();
+        return;
       }
     } catch (e) {
       console.warn('恢复权限失败', e);
-      pendingDirHandle = null;
+      showToast('恢复权限失败，请重试', 2500);
       updateDirBtnState();
+      return;
     }
   }
 
@@ -810,10 +865,17 @@ async function loadDirHandleFromIDB() {
 function updateDirBtnState() {
   const btn = document.getElementById('btn-dir');
   if (!btn) return;
+  
   if (musicDirHandle) {
     btn.classList.add('connected');
     btn.textContent = '目录✓';
     btn.title = '当前目录：' + musicDirHandle.name + '（点击重新扫描）';
+    
+    if (typeof updateAllOfflineBadges === 'function') {
+      updateAllOfflineBadges().catch((e) => {
+        console.warn('刷新离线图标失败', e);
+      });
+    }
   } else if (pendingDirHandle) {
     btn.classList.remove('connected');
     btn.textContent = '待授权';
@@ -824,6 +886,7 @@ function updateDirBtnState() {
     btn.title = '选择 /sdcard/Download/聚合音乐 目录';
   }
 }
+
 
 // ============ 文件读写 ============
 async function writeFileToDir(fileName, blob) {
@@ -1657,6 +1720,10 @@ async function play(source, i) {
   document.getElementById('p-title').textContent = s.name;
   document.getElementById('p-sub').textContent = s.artist + (s.album ? ' · ' + s.album : '');
 
+  // ★ 更新系统媒体卡片信息
+  updateMediaSessionMetadata(s);
+  updateMediaSessionState('playing');
+
   currentPlayingSong = s;
   currentPlayingUrl = '';
   updateDlCurrentBtn();
@@ -1716,7 +1783,6 @@ async function play(source, i) {
     if (myToken !== playToken) return;
     console.log('📊 loadedmetadata, duration =', audio.duration);
     if (source === 'tonzhon' && audio.duration && isFinite(audio.duration) && audio.duration < MIN_DURATION) {
-      // 铃声/片段过滤
       const idx = tzList.findIndex(x => x.id === s.id);
       if (idx >= 0) tzList.splice(idx, 1);
       playingIdx = null;
@@ -1727,7 +1793,7 @@ async function play(source, i) {
       return;
     }
     audio.play()
-      .then(() => { console.log('▶️ 播放已启动'); updatePlayIcon(true); })
+      .then(() => { console.log('▶️ 播放已启动'); updatePlayIcon(true); updateMediaSessionState('playing'); })
       .catch((err) => { console.warn('❌ 播放失败', err); showToast('这首歌播放不了：' + (err.message || ''), 2500); });
   };
   audio.onerror = () => {
@@ -1752,14 +1818,12 @@ async function playFavorite(index) {
   favPlayingIdx = { index };
   playingIdx = null;
 
-  // 主页高亮
   const homeBox = document.getElementById('home-view');
   if (homeBox) {
     homeBox.querySelectorAll('.home-item').forEach((el, i) => {
       el.classList.toggle('playing-item', i === index);
     });
   }
-  // 收藏面板高亮
   const favListBox = document.getElementById('fav-list');
   if (favListBox) {
     favListBox.querySelectorAll('.fav-item').forEach((el, i) => {
@@ -1773,6 +1837,10 @@ async function playFavorite(index) {
   playerEl.style.display = 'block';
   document.getElementById('p-title').textContent = f.name;
   document.getElementById('p-sub').textContent = f.artist + (f.album ? ' · ' + f.album : '');
+
+  // ★ 更新系统媒体卡片信息
+  updateMediaSessionMetadata(f);
+  updateMediaSessionState('playing');
 
   currentPlayingSong = f;
   currentPlayingUrl = '';
@@ -1807,7 +1875,7 @@ async function playFavorite(index) {
   audio.onloadedmetadata = () => {
     if (myToken !== playToken) return;
     audio.play()
-      .then(() => updatePlayIcon(true))
+      .then(() => { updatePlayIcon(true); updateMediaSessionState('playing'); })
       .catch((err) => { console.warn('播放失败', err); showToast('播放失败', 2000); });
   };
   audio.onerror = () => {
@@ -2175,11 +2243,18 @@ audio.addEventListener('timeupdate', () => {
 audio.addEventListener('loadedmetadata', () => {
   setProgress(0, audio.duration || 0);
 });
-audio.addEventListener('play', () => updatePlayIcon(true));
-audio.addEventListener('pause', () => updatePlayIcon(false));
+audio.addEventListener('play', () => {
+  updatePlayIcon(true);
+  updateMediaSessionState('playing');
+});
+audio.addEventListener('pause', () => {
+  updatePlayIcon(false);
+  updateMediaSessionState('paused');
+});
 
 audio.addEventListener('ended', () => {
   updatePlayIcon(false);
+  updateMediaSessionState('paused');
   audio.onerror = null;
 
   if (favPlayingIdx) {
@@ -2287,6 +2362,9 @@ async function boot() {
   loadFailed();
   setNavDisabled(true, true);
 
+  // ★ 初始化媒体会话
+  initMediaSession();
+
   try {
     const savedMode = localStorage.getItem('music_play_mode');
     if (savedMode === 'random' || savedMode === 'order') playMode = savedMode;
@@ -2314,10 +2392,8 @@ async function boot() {
       updateDirBtnState();
       updateAllOfflineBadges();
     } else {
-      // ★ 修改这里：自动尝试请求权限（加上延迟，减少被浏览器拦截的概率）
       console.log('⏳ 权限未授予，尝试自动请求权限...');
       
-      // 使用 setTimeout 异步执行，避免阻塞页面初始化
       setTimeout(async () => {
         try {
           const reqPerm = await savedHandle.requestPermission({ mode: 'readwrite' });
@@ -2327,21 +2403,19 @@ async function boot() {
             console.log('✅ 权限已自动获取：', savedHandle.name);
             updateDirBtnState();
             updateAllOfflineBadges();
-            renderHomeView(); // 刷新主页显示离线标签
+            renderHomeView();
             if (document.getElementById('fav-panel').classList.contains('open')) renderFavPanel();
           } else {
-            // 用户点击了拒绝，回退到待授权状态
             pendingDirHandle = savedHandle;
             console.log('❌ 用户拒绝授权，保持待授权状态');
             updateDirBtnState();
           }
         } catch (e) {
-          // 如果浏览器拦截了自动请求（比如必须由用户手势触发），回退到手动模式
           console.warn('自动请求权限被拦截或失败，需要手动点击「待授权」按钮：', e);
           pendingDirHandle = savedHandle;
           updateDirBtnState();
         }
-      }, 300); // 延迟 300ms，等页面渲染完再弹
+      }, 300);
     }
   } else {
     updateDirBtnState();

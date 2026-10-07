@@ -2054,10 +2054,10 @@ hlsInstance = new Hls({
   fragLoadingTimeOut: 20000,
   fragLoadingMaxRetry: 2,
 
-  maxBufferLength:    30,                    // 前向缓冲 30 秒
-  maxMaxBufferLength: 60,                    // 上限 60 秒
+  maxBufferLength:    60,                    // 前向缓冲 60 秒
+  maxMaxBufferLength: 180,                    // 上限 180 秒
   maxBufferSize:      60 * 1024 * 1024,      // 字节上限 60MB
-  backBufferLength:   30,                    // 已播放部分保留 30 秒
+  backBufferLength:   20,                    // 已播放部分保留 20 秒
 
   xhrSetup: function(xhr, url){
     try {

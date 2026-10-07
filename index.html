@@ -823,6 +823,170 @@ _apis: [
   parseList: function(text){ return parseAppleCMSList(text, this); },
   parseDetail: function(text){ return parseAppleCMSDetail(text); }
 },
+
+
+/* ------------------------ 饭搭子 ------------------------ */
+fandazi: {
+  name: '饭搭子',
+  base: 'https://fdzys.net',
+
+  /* 搜索页 URL：/yu-{关键词}-xianguan-de-yingpian-shippin-zhibo */
+  getSearchUrl: function(kw){
+    return this.base + '/yu-' + encodeURIComponent(kw) +
+           '-xianguan-de-yingpian-shippin-zhibo';
+  },
+  getSearchUrlGet: function(kw){
+    return this.getSearchUrl(kw);
+  },
+  getSearchOptions: function(kw){
+    return { method: 'GET' };
+  },
+
+  /* 解析搜索结果页：提取所有 /movie/ /tv/ /duanju/ 详情页链接 */
+  parseList: function(html){
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const list = [];
+    const seen = new Set();
+
+    doc.querySelectorAll('.myui-vodbox-content a[href]').forEach(a => {
+      const href = a.getAttribute('href') || '';
+      if(!href || seen.has(href)) return;
+      if(!/\/(movie|tv|duanju)\//.test(href)) return;
+      seen.add(href);
+
+      const nameEl = a.querySelector('.title') || a.querySelector('.card-info .title');
+      const name = nameEl ? nameEl.textContent.trim() : '';
+      if(!name) return;
+
+      const coverEl = a.querySelector('.card-img img');
+      let cover = '';
+      if(coverEl){
+        cover = coverEl.getAttribute('data-src') ||
+                coverEl.getAttribute('src') || '';
+      }
+      if(cover && cover.indexOf('data:image') === 0) cover = '';
+
+      const roleEl = a.querySelector('.role') || a.querySelector('.info-roles');
+      const role = roleEl ? roleEl.textContent.trim().replace(/^主演[:：]?/, '') : '';
+
+      const tagEl = a.querySelector('.tag-box .tag');
+      const status = tagEl ? tagEl.textContent.trim() : '';
+
+      list.push({
+        name,
+        year: '',
+        rank: '',
+        region: role,
+        status,
+        cover: abs(cover, this.base),
+        href: abs(href, this.base)
+      });
+    });
+
+    return {
+      list,
+      prevUrl: '',
+      nextUrl: '',
+      hasPrev: false,
+      hasMore: false,
+      currentPage: 1,
+      totalPages: 1,
+      totalCount: list.length
+    };
+  },
+
+  /* 详情页解析：拿 player_aaaa.url，并按需解析 CDN 分享页 */
+  parseDetailAsync: async function(html){
+    const m = html.match(/var\s+player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/);
+    if(!m){
+      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+    }
+
+    let cfg;
+    try { cfg = JSON.parse(m[1]); }
+    catch(e){
+      console.warn('[饭搭子] player_aaaa 解析失败：', e.message);
+      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+    }
+
+    let url = cfg.url || '';
+    // 解密（有 encrypt 时）
+    try {
+      if(cfg.encrypt == 1) url = unescape(url);
+      else if(cfg.encrypt == 2) url = unescape(atob(url));
+    } catch(e){}
+
+    if(!url){
+      return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+    }
+
+    // 直接是 m3u8
+    if(MEDIA_RE.test(url)){
+      return {
+        cover: '',
+        magnets: [],
+        playPageUrl: '',
+        playList: [{
+          lineName: cfg.from || '饭搭子',
+          epName: cfg.vod_data && cfg.vod_data.vod_name
+                  ? cfg.vod_data.vod_name
+                  : '正片',
+          url
+        }]
+      };
+    }
+
+    // CDN 分享页：请求它，提取 var main
+    if(/\/share\/[a-zA-Z0-9]+/.test(url)){
+      try {
+        const shareHtml = await requestUrl(url);
+        const mm = shareHtml.match(/var\s+main\s*=\s*["']([^"']+)["']/);
+        if(mm){
+          let mainPath = mm[1].replace(/\\\//g, '/');
+          if(!/^https?:\/\//i.test(mainPath)){
+            const origin = new URL(url).origin;
+            mainPath = origin + mainPath;
+          }
+          return {
+            cover: '',
+            magnets: [],
+            playPageUrl: '',
+            playList: [{
+              lineName: cfg.from || '饭搭子',
+              epName: cfg.vod_data && cfg.vod_data.vod_name
+                      ? cfg.vod_data.vod_name
+                      : '正片',
+              url: mainPath
+            }]
+          };
+        }
+      } catch(e){
+        console.warn('[饭搭子] 分享页请求失败：', e.message);
+      }
+
+      // 提取不到 m3u8 就把分享页地址当播放页，走 iframe
+      return {
+        cover: '',
+        magnets: [],
+        playPageUrl: url,
+        playList: []
+      };
+    }
+
+    // 其他情况（如官方站点 v.qq.com）：走 playPageUrl 探测
+    return {
+      cover: '',
+      magnets: [],
+      playPageUrl: url,
+      playList: []
+    };
+  },
+
+  /* 同步兜底（一般不会走到，因为有 parseDetailAsync） */
+  parseDetail: function(html){
+    return { cover: '', magnets: [], playPageUrl: '', playList: [] };
+  }
+},
   
 };
 
@@ -3130,14 +3294,15 @@ function switchSource(src){
   const track  = document.getElementById('srcTrack');
   if(!swiper || !track) return;
 
-  const SRC_LIST = [
-    { src:'cilixiong', name:'磁力熊' },
-    { src:'xiaomifeng', name:'小蜜蜂' },
-    { src:'feikuai',    name:'飞快TV' },
-    { src:'juhe',       name:'聚合源' },
-    { src:'flixflop',   name:'飞流视频' },
-    { src:'ikanbot',    name:'爱看机器人' },
-  ];
+const SRC_LIST = [
+  { src:'cilixiong', name:'磁力熊' },
+  { src:'xiaomifeng', name:'小蜜蜂' },
+  { src:'feikuai',    name:'飞快TV' },
+  { src:'fandazi',    name:'饭搭子' },
+  { src:'juhe',       name:'聚合源' },
+  { src:'flixflop',   name:'飞流视频' },
+  { src:'ikanbot',    name:'爱看机器人' },
+];
 
 
 /* ★ 创建绿色导轨（固定不动，撑满屏幕） */
